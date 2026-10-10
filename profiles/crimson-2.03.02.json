@@ -1,0 +1,10 @@
+{
+  "name": "Crimson Desert Steam 2.03.02",
+  "executable_sha256": "57da440d72f4db974f25fef047cf84c4dadd999a88cb2a3c5af4c9bd67fde1e7",
+  "client_manager_rva": "0x6d694e8",
+  "server_manager_rva": "0x6d69698",
+  "client_player_offset": 80,
+  "transform_component_offset": 416,
+  "world_position_offset": 668,
+  "position_status": "candidate_pending_controlled_movement"
+}

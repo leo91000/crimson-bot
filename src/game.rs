@@ -21,9 +21,78 @@ pub struct Game {
     manager_global: Option<u64>,
     inventory_global: Option<u64>,
     xyz: Option<(u64, u64)>,
+    client_global: Option<u64>,
+    profile: Option<serde_json::Value>,
     pub diagnostics: serde_json::Value,
 }
 impl Game {
+    pub fn discover(&self) -> Result<serde_json::Value> {
+        let m = &self.memory;
+        let mut roots = vec![];
+        let mut checked = BTreeSet::new();
+        for mapping in &m.mappings {
+            if !mapping.readable || !mapping.writable || mapping.executable {
+                continue;
+            }
+            let start = mapping.start.max(m.base);
+            let end = mapping.end.min(m.base + m.image_size);
+            if end <= start {
+                continue;
+            }
+            let bytes = m.read(start, (end - start) as usize)?;
+            for (index, word) in bytes.chunks_exact(8).enumerate() {
+                let pointer = u64::from_le_bytes(word.try_into().unwrap());
+                if pointer < 0x10000 || !checked.insert(pointer) {
+                    continue;
+                }
+                let indirect = m.ptr(pointer).ok();
+                for candidate in [Some(pointer), indirect].into_iter().flatten() {
+                    let Ok(data) = m.ptr(candidate + 0xb8) else {
+                        continue;
+                    };
+                    let Ok(count) = m.u32(candidate + 0xc0) else {
+                        continue;
+                    };
+                    if !(2..=8192).contains(&count) {
+                        continue;
+                    }
+                    let Ok(capacity) = m.u32(candidate + 0xc4) else {
+                        continue;
+                    };
+                    if capacity < count || capacity > 65536 {
+                        continue;
+                    }
+                    let Ok(pool) = m.read(data, count as usize * 8) else {
+                        continue;
+                    };
+                    let owners: Vec<_> = pool
+                        .chunks_exact(8)
+                        .map(|v| u64::from_le_bytes(v.try_into().unwrap()))
+                        .collect();
+                    let player = self.controlled(&owners).ok();
+                    let tagged = owners
+                        .iter()
+                        .take(64)
+                        .filter(|&&owner| {
+                            m.ptr(owner + 0x88)
+                                .ok()
+                                .and_then(|p| m.u8(p + 1).ok())
+                                .is_some_and(|v| v <= 9)
+                        })
+                        .count();
+                    if tagged < 4 && player.is_none() {
+                        continue;
+                    }
+                    roots.push(json!({"slot_rva": format!("{:#x}",start + index as u64 * 8 - m.base),
+                        "indirect": candidate != pointer, "manager": format!("{candidate:#x}"),
+                        "count":count,"tagged":tagged,"controlled":player.map(|v|format!("{v:#x}"))}));
+                }
+            }
+        }
+        Ok(
+            json!({"diagnostics":self.diagnostics,"structural_roots":roots,"pointers_checked":checked.len()}),
+        )
+    }
     pub fn attach() -> Result<Self> {
         let memory = Memory::attach()?;
         let mut votes = BTreeSet::new();
@@ -35,7 +104,7 @@ impl Game {
             }
             signatures.push(json!({"anchor": index, "matches": hits.len()}));
         }
-        let manager_global = if votes.len() == 1 {
+        let mut manager_global = if votes.len() == 1 {
             votes.first().copied()
         } else {
             None
@@ -55,7 +124,38 @@ impl Game {
         } else {
             None
         };
-        let diagnostics = json!({"executable_sha256": memory.fingerprint()?, "image_size": memory.image_size, "module_base": format!("{:#x}",memory.base),
+        let fingerprint = memory.fingerprint()?;
+        let build: serde_json::Value =
+            serde_json::from_str(include_str!("../profiles/crimson-2.03.02.json"))?;
+        let profile = if build["executable_sha256"] == fingerprint {
+            Some(build)
+        } else {
+            None
+        };
+        let mut client_global = None;
+        if let Some(profile) = &profile {
+            let client_rva = u64::from_str_radix(
+                profile["client_manager_rva"]
+                    .as_str()
+                    .unwrap()
+                    .trim_start_matches("0x"),
+                16,
+            )?;
+            let server_rva = u64::from_str_radix(
+                profile["server_manager_rva"]
+                    .as_str()
+                    .unwrap()
+                    .trim_start_matches("0x"),
+                16,
+            )?;
+            ensure!(
+                client_rva < memory.image_size && server_rva < memory.image_size,
+                "Profile root outside image"
+            );
+            client_global = Some(memory.base + client_rva);
+            manager_global = Some(memory.base + server_rva);
+        }
+        let diagnostics = json!({"profile":profile.as_ref().map(|v|v["name"].clone()),"executable_sha256": fingerprint, "image_size": memory.image_size, "module_base": format!("{:#x}",memory.base),
             "manager_anchors": signatures, "manager_roots": votes.iter().map(|v|format!("{v:#x}")).collect::<Vec<_>>(),
             "inventory_signature_matches": inv_hits.len(), "xyz_signature_matches": xyz_hits.len()});
         Ok(Self {
@@ -63,6 +163,8 @@ impl Game {
             manager_global,
             inventory_global,
             xyz,
+            client_global,
+            profile,
             diagnostics,
         })
     }
@@ -71,6 +173,12 @@ impl Game {
             .manager_global
             .ok_or_else(|| anyhow::anyhow!("Manager unavailable"))?;
         let manager = self.memory.chain(global, &[0, 0])?;
+        if self.profile.is_some() {
+            ensure!(
+                self.memory.type_name(manager)? == ".?AVServerActorManager@pa@@",
+                "Server manager type mismatch"
+            );
+        }
         let data = self.memory.ptr(manager + 0xb8)?;
         let count = self.memory.u32(manager + 0xc0)?;
         ensure!((1..=8192).contains(&count), "Character count invalid");
@@ -123,13 +231,40 @@ impl Game {
                 values.push(Stat {
                     kind,
                     current,
-                    maximum,
+                    maximum: if maximum > 0.0 { Some(maximum) } else { None },
                 });
             }
         }
         Ok(values)
     }
     fn position(&self, owner: u64) -> Result<Position> {
+        if let Some(global) = self.client_global {
+            let manager = self.memory.chain(global, &[0, 0])?;
+            ensure!(
+                self.memory.type_name(manager)? == ".?AVClientActorManager@pa@@",
+                "Client manager type mismatch"
+            );
+            let client = self.memory.ptr(manager + 0x50)?;
+            ensure!(
+                self.memory.type_name(client)? == ".?AVClientChildOnlyInGameActor@pa@@",
+                "Controlled client body type mismatch"
+            );
+            let controller = self.memory.ptr(client + 0xa0)?;
+            ensure!(
+                self.memory.ptr(controller + 0xd0)? == client,
+                "Client possession changed"
+            );
+            ensure!(
+                self.memory.u32(client + 0x60)? == self.memory.u32(owner + 0x60)?,
+                "Client/server body identity mismatch"
+            );
+            let transform = self.memory.chain(client, &[0x68, 0x1a0])?;
+            ensure!(
+                self.memory.type_name(transform)? == ".?AVClientTransformSyncActorComponent@pa@@",
+                "Transform type mismatch"
+            );
+            return self.position_at(transform + 0x29c, transform + 0x2a4);
+        }
         let vector = self.memory.chain(owner, &[0x68, 0x40, 0x08, 0x248])? + 0x90;
         self.position_at(vector, vector + 8)
     }

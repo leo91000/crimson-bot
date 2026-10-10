@@ -10,6 +10,8 @@ pub struct Mapping {
     pub start: u64,
     pub end: u64,
     pub readable: bool,
+    pub writable: bool,
+    pub executable: bool,
     pub path: String,
 }
 /// Provides no write operation or writable handle.
@@ -64,6 +66,8 @@ impl Memory {
                 start: u64::from_str_radix(start, 16)?,
                 end: u64::from_str_radix(end, 16)?,
                 readable: columns[1].starts_with('r'),
+                writable: columns[1].contains('w'),
+                executable: columns[1].contains('x'),
                 path: columns[5..].join(" "),
             });
         }
@@ -138,7 +142,7 @@ impl Memory {
     pub fn ptr(&self, address: u64) -> Result<u64> {
         let pointer = self.u64(address)?;
         ensure!(
-            (0x10000..0x8000_0000_0000).contains(&pointer),
+            (0x1000_0000..0x8000_0000_0000).contains(&pointer),
             "Invalid pointer"
         );
         Ok(pointer)
@@ -152,6 +156,36 @@ impl Memory {
     }
     pub fn f32(&self, a: u64) -> Result<f32> {
         Ok(f32::from_le_bytes(self.read(a, 4)?.try_into().unwrap()))
+    }
+    /// MSVC x64 RTTI, validated against this module before following its RVA.
+    pub fn type_name(&self, object: u64) -> Result<String> {
+        let table = self.ptr(object)?;
+        ensure!(
+            table >= self.base && table < self.base + self.image_size,
+            "Vtable outside game module"
+        );
+        let locator = self.ptr(table - 8)?;
+        ensure!(
+            locator >= self.base && locator + 24 <= self.base + self.image_size,
+            "RTTI locator outside module"
+        );
+        ensure!(self.u32(locator)? == 1, "Unsupported RTTI locator");
+        let descriptor = self.base + self.u32(locator + 12)? as u64;
+        ensure!(
+            descriptor >= self.base && descriptor + 176 < self.base + self.image_size,
+            "RTTI descriptor outside module"
+        );
+        let bytes = self.read(descriptor + 16, 160)?;
+        let end = bytes
+            .iter()
+            .position(|v| *v == 0)
+            .context("Unterminated RTTI name")?;
+        let name = std::str::from_utf8(&bytes[..end])?;
+        ensure!(
+            name.starts_with(".?AV") && name.ends_with("@pa@@"),
+            "Unexpected RTTI namespace"
+        );
+        Ok(name.to_owned())
     }
     pub fn rip(&self, instruction: u64, displacement: u64, length: u64) -> Result<u64> {
         let rel = self.u32(instruction + displacement)? as i32 as i64;

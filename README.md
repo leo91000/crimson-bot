@@ -22,6 +22,8 @@ La première cible est une quête secondaire de récolte à faible conséquence,
 
 Voir le [cahier des charges](docs/REQUIREMENTS.md), l'[architecture](docs/ARCHITECTURE.md) et les [sources du reverse engineering](docs/RESEARCH.md).
 
+Le [guide de scripting](docs/SCRIPTING.md) détaille les scripts Rhai, les commandes et l'installation sur SteamOS.
+
 ## Développement
 
 ```sh

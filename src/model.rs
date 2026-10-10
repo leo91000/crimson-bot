@@ -16,7 +16,7 @@ impl Position {
 pub struct Stat {
     pub kind: u32,
     pub current: f64,
-    pub maximum: f64,
+    pub maximum: Option<f64>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Item {
