@@ -28,6 +28,7 @@ pub struct Options {
     pub dry_run: bool,
     pub frames: bool,
     pub models: Option<PathBuf>,
+    pub params: Option<PathBuf>,
 }
 struct Events {
     file: File,
@@ -46,6 +47,9 @@ pub fn run(options: Options) -> Result<()> {
         "Run duration outside 1..3600 seconds"
     );
     let mut script = Script::load(&options.script)?;
+    if let Some(path) = &options.params {
+        script.configure(serde_json::from_slice(&fs::read(path)?)?)?;
+    }
     let vision = options
         .models
         .as_ref()
@@ -130,6 +134,19 @@ pub fn run(options: Options) -> Result<()> {
                     "Observation stale before action"
                 );
                 if let Some(control) = controls.as_mut() {
+                    if let Some(expected) = &action.ui_mode {
+                        let ui = world
+                            .ui
+                            .as_ref()
+                            .context("UI action requires current perception")?;
+                        ensure!(&ui.mode == expected, "UI mode changed before action");
+                        if let Some([x, y]) = action.cursor {
+                            ensure!(
+                                x < ui.width && y < ui.height,
+                                "Cursor outside current frame"
+                            );
+                        }
+                    }
                     ensure!(
                         world.player_resolved,
                         "Cannot act without a validated controlled body"

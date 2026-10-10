@@ -19,6 +19,7 @@ fn tick(ctx) {
 - `ctx.world` : PID, horodatage, personnage résolu, position optionnelle, ressources, inventaire optionnel, capacités et diagnostics.
 - `ctx.elapsed_ms` : durée monotone de l'exécution.
 - `ctx.memory` : état JSON explicite renvoyé par le tick précédent. Initialement un objet vide.
+- `ctx.goal` : paramètres JSON de l'objectif, fournis par `--params FILE`, limités à 64 Kio.
 
 Une valeur optionnelle absente devient `()` dans Rhai. Un inventaire absent est inconnu, pas vide. Les positions candidates doivent être validées par un essai de mouvement avant de servir à la navigation.
 
@@ -37,6 +38,10 @@ Une valeur optionnelle absente devient `()` dans Rhai. Un inventaire absent est 
 Les actions acceptent `keys`, `mouse_x`, `mouse_y`, `duration_ms`. Durée : 1 à 500 ms ; caméra : ±500 en X et ±200 en Y. Le moteur relâche les touches entre deux actions et à l'arrêt. Les noms de commandes sont centralisés dans `control.rs` ; leur correspondance avec les réglages du jeu doit être validée sur machine.
 
 Fonctions : `distance_xz(ax, az, bx, bz)` et `bearing_xz(ax, az, bx, bz)`. L'import de modules, les fichiers, le réseau et le shell ne sont pas accessibles depuis les scripts. Chaque tick possède un budget de 50 000 opérations et une profondeur d'appel limitée.
+
+`find_ui(ctx.world.ui, "Factions")` renvoie le centre d'un mot reconnu, ou `()` si la cible est absente ou ambiguë. Les accents sont normalisés pour les sélecteurs. Le résultat est une proposition de sélection, pas une preuve de réussite.
+
+Une action d'interface peut utiliser `cursor: [x, y]`, `keys: ["click"]`, `ui_mode: "journal"`. Le moteur vérifie le mode observé, le focus et les dimensions actuelles. Le déplacement et le clic d'interface passent ensemble par XTest ; les commandes de jeu passent par uinput. Les touches et boutons sont relâchés sur erreur, arrêt demandé, SIGINT et SIGTERM.
 
 ## Exécution sur SteamOS
 

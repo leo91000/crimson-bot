@@ -54,6 +54,8 @@ enum Command {
         state_dir: Option<std::path::PathBuf>,
         #[arg(long)]
         models: Option<std::path::PathBuf>,
+        #[arg(long)]
+        params: Option<std::path::PathBuf>,
     },
 }
 fn main() -> Result<()> {
@@ -92,6 +94,7 @@ fn main() -> Result<()> {
             save_root,
             state_dir,
             models,
+            params,
         } => {
             runtime::run(runtime::Options {
                 script,
@@ -99,6 +102,7 @@ fn main() -> Result<()> {
                 dry_run,
                 frames,
                 models,
+                params,
                 save_root: save_root.unwrap_or(backup::default_save_root()?),
                 state: state_dir.unwrap_or(runtime::default_state()?),
             })?;

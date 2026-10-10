@@ -10,6 +10,10 @@ use std::{collections::BTreeSet, process::Command};
 #[serde(deny_unknown_fields)]
 pub struct Action {
     #[serde(default)]
+    pub cursor: Option<[u32; 2]>,
+    #[serde(default)]
+    pub ui_mode: Option<String>,
+    #[serde(default)]
     pub keys: Vec<String>,
     #[serde(default)]
     pub mouse_x: i32,
@@ -34,7 +38,7 @@ pub fn key(name: &str) -> Result<Key> {
         "escape" => Key::KEY_ESC,
         "journal" => Key::KEY_J,
         "map" => Key::KEY_M,
-        "attack" => Key::BTN_LEFT,
+        "attack" | "click" => Key::BTN_LEFT,
         "guard" => Key::BTN_RIGHT,
         "lock_on" => Key::BTN_MIDDLE,
         "confirm" => Key::KEY_ENTER,
@@ -58,6 +62,17 @@ impl Action {
         for binding in &self.keys {
             key(binding)?;
         }
+        if let Some([x, y]) = self.cursor {
+            ensure!(x < 7680 && y < 4320, "Cursor outside supported dimensions");
+            ensure!(
+                self.ui_mode.as_deref() == Some("journal"),
+                "Cursor actions require recognized journal"
+            );
+            ensure!(
+                self.keys.iter().all(|v| v == "click"),
+                "Cursor actions cannot contain gameplay keys"
+            );
+        }
         Ok(())
     }
 }
@@ -78,6 +93,7 @@ pub fn has_game_focus(pid: u32) -> Result<bool> {
 pub struct Controls {
     device: VirtualDevice,
     held: BTreeSet<u16>,
+    held_x_mouse: bool,
 }
 impl Controls {
     pub fn create() -> Result<Self> {
@@ -99,13 +115,32 @@ impl Controls {
         Ok(Self {
             device,
             held: BTreeSet::new(),
+            held_x_mouse: false,
         })
     }
     pub fn apply(&mut self, action: &Action) -> Result<()> {
         action.validate()?;
         self.release()?;
+        if let Some([x, y]) = action.cursor {
+            let status = Command::new("xdotool")
+                .args(["mousemove", &x.to_string(), &y.to_string()])
+                .env("DISPLAY", ":1")
+                .status()?;
+            ensure!(status.success(), "Cursor move failed");
+            if action.keys.iter().any(|v| v == "click") {
+                self.held_x_mouse = true;
+                let status = Command::new("xdotool")
+                    .args(["mousedown", "1"])
+                    .env("DISPLAY", ":1")
+                    .status()?;
+                ensure!(status.success(), "UI mouse press failed");
+            }
+        }
         let mut events = vec![];
         for binding in &action.keys {
+            if action.cursor.is_some() && binding == "click" {
+                continue;
+            }
             let code = key(binding)?.code();
             if self.held.insert(code) {
                 events.push(InputEvent::new(EventType::KEY, code, 1));
@@ -129,6 +164,14 @@ impl Controls {
         Ok(())
     }
     pub fn release(&mut self) -> Result<()> {
+        if self.held_x_mouse {
+            let status = Command::new("xdotool")
+                .args(["mouseup", "1"])
+                .env("DISPLAY", ":1")
+                .status()?;
+            ensure!(status.success(), "UI mouse release failed");
+            self.held_x_mouse = false;
+        }
         let events: Vec<_> = self
             .held
             .iter()

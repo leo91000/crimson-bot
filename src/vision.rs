@@ -7,15 +7,16 @@ use std::{path::Path, time::Instant};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Line {
     pub text: String,
-    pub left: f32,
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Ui {
     pub mode: String,
     pub lines: Vec<Line>,
+    pub words: Vec<Line>,
     pub width: u32,
     pub height: u32,
     pub processing_ms: u64,
@@ -46,31 +47,43 @@ impl Vision {
             ((height as f32) * (width.min(1920) as f32) / (width as f32)) as u32,
             image::imageops::FilterType::Triangle,
         );
-        let scale = width as f32 / resized.width() as f32;
+        let scale = width as f64 / resized.width() as f64;
         let source = ImageSource::from_bytes(resized.as_raw(), resized.dimensions())?;
         let input = self.engine.prepare_input(source)?;
         let words = self.engine.detect_words(&input)?;
         let groups = self.engine.find_text_lines(&input, &words);
         let texts = self.engine.recognize_text(&input, &groups)?;
         let mut lines = vec![];
+        let mut words = vec![];
         for line in texts.into_iter().flatten() {
             let text = line.to_string();
             if text.len() < 2 {
                 continue;
             }
             let rect = line.bounding_rect();
+            for word in line.words() {
+                let rect = word.bounding_rect();
+                words.push(Line {
+                    text: word.to_string(),
+                    left: rect.left() as f64 * scale,
+                    top: rect.top() as f64 * scale,
+                    right: rect.right() as f64 * scale,
+                    bottom: rect.bottom() as f64 * scale,
+                });
+            }
             lines.push(Line {
                 text,
-                left: rect.left() as f32 * scale,
-                top: rect.top() as f32 * scale,
-                right: rect.right() as f32 * scale,
-                bottom: rect.bottom() as f32 * scale,
+                left: rect.left() as f64 * scale,
+                top: rect.top() as f64 * scale,
+                right: rect.right() as f64 * scale,
+                bottom: rect.bottom() as f64 * scale,
             });
         }
         let mode = classify(&lines);
         Ok(Ui {
             mode,
             lines,
+            words,
             width,
             height,
             processing_ms: start.elapsed().as_millis() as u64,
@@ -86,8 +99,9 @@ fn classify(lines: &[Line]) -> String {
     if text.contains("charger") && text.contains("sauvegarder") {
         return "pause".into();
     }
-    if (text.contains("journal") || text.contains("lournal") || text.contains("histoire"))
-        && text.contains("quetes")
+    if (text.contains("journal") || text.contains("lournal"))
+        && text.contains("histoire")
+        && text.contains("factions")
     {
         return "journal".into();
     }
@@ -100,7 +114,7 @@ fn classify(lines: &[Line]) -> String {
     }
     "unknown".into()
 }
-fn normalize(text: &str) -> String {
+pub fn normalize(text: &str) -> String {
     text.to_lowercase()
         .chars()
         .map(|c| match c {
