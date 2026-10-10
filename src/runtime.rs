@@ -27,6 +27,7 @@ pub struct Options {
     pub seconds: u64,
     pub dry_run: bool,
     pub frames: bool,
+    pub models: Option<PathBuf>,
 }
 struct Events {
     file: File,
@@ -45,6 +46,11 @@ pub fn run(options: Options) -> Result<()> {
         "Run duration outside 1..3600 seconds"
     );
     let mut script = Script::load(&options.script)?;
+    let vision = options
+        .models
+        .as_ref()
+        .map(|path| crate::vision::Vision::load(path))
+        .transpose()?;
     fs::create_dir_all(&options.state)?;
     fs::set_permissions(&options.state, fs::Permissions::from_mode(0o700))?;
     let lock = OpenOptions::new()
@@ -89,7 +95,7 @@ pub fn run(options: Options) -> Result<()> {
     };
     // Allow gamescope to enumerate the newly created device.
     if controls.is_some() {
-        thread::sleep(Duration::from_millis(400));
+        thread::sleep(Duration::from_millis(1200));
     }
     let start = Instant::now();
     let deadline = start + Duration::from_secs(options.seconds);
@@ -99,7 +105,15 @@ pub fn run(options: Options) -> Result<()> {
             && !stop.load(Ordering::SeqCst)
             && !options.state.join("STOP").exists()
         {
-            let world = game.observe()?;
+            let ui = if let Some(vision) = &vision {
+                let frame = capture::capture(&session)?;
+                events.write(json!({"event":"frame","path":frame}))?;
+                Some(vision.read(&frame)?)
+            } else {
+                None
+            };
+            let mut world = game.observe()?;
+            world.ui = ui;
             let observed = Instant::now();
             let decision = script.tick(&world, start.elapsed().as_millis() as u64)?;
             events.write(json!({"event":"tick","tick":tick,"world":world,"decision":decision}))?;

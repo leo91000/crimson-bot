@@ -40,8 +40,8 @@ impl Game {
                 continue;
             }
             let bytes = m.read(start, (end - start) as usize)?;
-            for (index, word) in bytes.chunks_exact(8).enumerate() {
-                let pointer = u64::from_le_bytes(word.try_into().unwrap());
+            for (index, word) in bytes.as_chunks::<8>().0.iter().enumerate() {
+                let pointer = u64::from_le_bytes(*word);
                 if pointer < 0x10000 || !checked.insert(pointer) {
                     continue;
                 }
@@ -66,8 +66,10 @@ impl Game {
                         continue;
                     };
                     let owners: Vec<_> = pool
-                        .chunks_exact(8)
-                        .map(|v| u64::from_le_bytes(v.try_into().unwrap()))
+                        .as_chunks::<8>()
+                        .0
+                        .iter()
+                        .map(|v| u64::from_le_bytes(*v))
                         .collect();
                     let player = self.controlled(&owners).ok();
                     let tagged = owners
@@ -184,8 +186,10 @@ impl Game {
         ensure!((1..=8192).contains(&count), "Character count invalid");
         let bytes = self.memory.read(data, count as usize * 8)?;
         Ok(bytes
-            .chunks_exact(8)
-            .map(|v| u64::from_le_bytes(v.try_into().unwrap()))
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|v| u64::from_le_bytes(*v))
             .filter(|v| *v > 0x10000)
             .collect())
     }
@@ -278,10 +282,22 @@ impl Game {
         Ok(position)
     }
     fn inventory(&self) -> Result<Vec<Item>> {
-        let global = self
-            .inventory_global
-            .ok_or_else(|| anyhow::anyhow!("Inventory unavailable"))?;
-        let holder = self.memory.chain(global, &[0, 0x30, 0x50, 0x68, 0xb8])?;
+        let stride = if self.profile.is_some() { 0xc8 } else { 0xc0 };
+        let holder = if self.profile.is_some() {
+            let characters = self.characters()?;
+            let owner = self.controlled(&characters)?;
+            let component = self.memory.chain(owner, &[0x68, 0xb8])?;
+            ensure!(
+                self.memory.type_name(component)? == ".?AVServerInventoryActorComponent@pa@@",
+                "Inventory component type mismatch"
+            );
+            component
+        } else {
+            let global = self
+                .inventory_global
+                .ok_or_else(|| anyhow::anyhow!("Inventory unavailable"))?;
+            self.memory.chain(global, &[0, 0x30, 0x50, 0x68, 0xb8])?
+        };
         let buckets = self.memory.ptr(holder + 0x18)?;
         let count = self.memory.u32(holder + 0x20)?;
         ensure!((1..=128).contains(&count), "Invalid bucket count");
@@ -295,8 +311,8 @@ impl Game {
             }
             let slots = self.memory.ptr(bucket)?;
             let storage = self.memory.u16(bucket + 0x10)?;
-            let bytes = self.memory.read(slots, size as usize * 0xc0)?;
-            for slot in bytes.chunks_exact(0xc0) {
+            let bytes = self.memory.read(slots, size as usize * stride)?;
+            for slot in bytes.chunks_exact(stride) {
                 let type_id = u16::from_le_bytes(slot[8..10].try_into().unwrap());
                 if type_id == 0xffff {
                     continue;
@@ -333,7 +349,14 @@ impl Game {
             capabilities.push("vitals".into());
         }
         if position.is_some() {
-            capabilities.push("position_candidate".into());
+            capabilities.push(
+                if self.profile.is_some() {
+                    "position"
+                } else {
+                    "position_candidate"
+                }
+                .into(),
+            );
         }
         if inventory.is_some() {
             capabilities.push("inventory".into());
@@ -345,6 +368,7 @@ impl Game {
             position,
             stats,
             inventory,
+            ui: None,
             characters: characters.len(),
             capabilities,
             diagnostics: self.diagnostics.clone(),

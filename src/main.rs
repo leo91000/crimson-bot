@@ -6,6 +6,7 @@ mod memory;
 mod model;
 mod runtime;
 mod script;
+mod vision;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 #[derive(Parser)]
@@ -32,6 +33,12 @@ enum Command {
         #[arg(long)]
         state_dir: Option<std::path::PathBuf>,
     },
+    /// Read text and UI state from an existing frame using local OCR models.
+    ReadScreen {
+        image: std::path::PathBuf,
+        #[arg(long)]
+        models: std::path::PathBuf,
+    },
     /// Execute an autonomous task; dry runs produce decisions without controls.
     Run {
         script: std::path::PathBuf,
@@ -45,6 +52,8 @@ enum Command {
         save_root: Option<std::path::PathBuf>,
         #[arg(long)]
         state_dir: Option<std::path::PathBuf>,
+        #[arg(long)]
+        models: Option<std::path::PathBuf>,
     },
 }
 fn main() -> Result<()> {
@@ -69,6 +78,12 @@ fn main() -> Result<()> {
             let state = state_dir.unwrap_or(runtime::default_state()?);
             println!("{}", capture::capture(&state.join("frames"))?.display());
         }
+        Command::ReadScreen { image, models } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&vision::Vision::load(&models)?.read(&image)?)?
+            );
+        }
         Command::Run {
             script,
             seconds,
@@ -76,12 +91,14 @@ fn main() -> Result<()> {
             frames,
             save_root,
             state_dir,
+            models,
         } => {
             runtime::run(runtime::Options {
                 script,
                 seconds,
                 dry_run,
                 frames,
+                models,
                 save_root: save_root.unwrap_or(backup::default_save_root()?),
                 state: state_dir.unwrap_or(runtime::default_state()?),
             })?;

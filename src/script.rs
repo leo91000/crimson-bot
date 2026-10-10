@@ -90,6 +90,7 @@ mod tests {
             position: None,
             stats: vec![],
             inventory: None,
+            ui: None,
             characters: 1,
             capabilities: vec![],
             diagnostics: json!({}),

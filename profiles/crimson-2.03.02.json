@@ -6,5 +6,7 @@
   "client_player_offset": 80,
   "transform_component_offset": 416,
   "world_position_offset": 668,
-  "position_status": "candidate_pending_controlled_movement"
+  "position_status": "verified_controlled_movement",
+  "inventory_component_offset": "0xb8",
+  "inventory_slot_stride": 200
 }
