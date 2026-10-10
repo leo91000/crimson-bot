@@ -142,7 +142,7 @@ fn classify(lines: &[Line]) -> String {
         return "pause".into();
     }
     if text.contains("charger")
-        && (text.contains("continuer") || text.contains("reprendre"))
+        && (text.contains("continuer") || text.contains("reprendre") || text.contains("jouer"))
         && text.contains("nouvelle")
     {
         return "title".into();

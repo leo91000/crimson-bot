@@ -18,11 +18,15 @@
 - Catalogue d'objets lu depuis `ItemInfoManager`, définitions à +0x58. La lavande et ses variantes ont des clés stables différentes et des index distincts résolus en direct.
 - Régression de sélection : certains derniers caractères OCR absorbent les espaces vers la carte voisine. Centre médian des caractères et régions explicites testés.
 - Capacité de récolte testée sur observations synthétiques : aucune réussite avant la hausse effective du bon objet dans le bon stockage.
+- Reprise de la partie depuis le menu principal français « Jouer », avec sauvegarde indépendante préalable et attente de l'interface de jeu reconnue. Aucun choix de sauvegarde ancienne effectué.
+- Navigation locale autonome : calibration d'un recul, cible calculée à une unité du point initial dans cette direction, arrivée observée dans un rayon de 0,2 unité, puis relâchement des commandes. L'essai a terminé avec le statut `succeeded` en environ 22 secondes.
+- Nouvelle lecture de la transformation validée avec secteurs cohérente avec la position observée. Changements de secteur et parent testés sur données synthétiques.
 
 ## À valider
 
-- Inventaire, caméra, état de l'interface et cibles de récolte.
-- Navigation avec observations, récolte confirmée, combat et quête complète.
+- Sémantique des ressources autres que la santé, maxima et calibration de la caméra.
+- Reconnaissance de l'interface au-delà des écrans testés, identification des plantes et récolte réelle confirmée.
+- Navigation sur longs trajets, obstacles, falaises, montures, combat et quête complète.
 
 Les signatures publiques anciennes ne correspondent pas à ce build. Le profil actuel vient d'une exploration structurelle et d'une vérification en jeu ; il ne doit pas être appliqué à une autre empreinte.
 

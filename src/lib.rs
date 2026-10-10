@@ -10,4 +10,5 @@ pub mod model;
 pub mod navigation;
 pub mod runtime;
 pub mod script;
+pub mod transform;
 pub mod vision;

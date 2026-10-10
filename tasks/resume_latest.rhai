@@ -8,6 +8,7 @@ fn tick(ctx) {
     if ui.mode=="title" && !ctx.memory.contains("continued") {
         let point=find_ui(ui,"Continuer");
         if point==() {point=find_ui(ui,"Reprendre");}
+        if point==() {point=find_ui_in(ui,"Jouer",0.0,0.7,1.0,1.0);}
         if point==() {return #{status:"blocked",reason:"Continue option not uniquely identified"};}
         return #{status:"running",memory:#{continued:true},action:#{cursor:[point.x,point.y],keys:["click"],ui_mode:"title",duration_ms:250}};
     }

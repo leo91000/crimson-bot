@@ -274,7 +274,7 @@ impl Game {
                 self.memory.type_name(transform)? == ".?AVClientTransformSyncActorComponent@pa@@",
                 "Transform type mismatch"
             );
-            return self.position_at(transform + 0x29c, transform + 0x2a4);
+            return crate::transform::decode(&self.memory.read(transform + 0xb4, 0x48)?);
         }
         let vector = self.memory.chain(owner, &[0x68, 0x40, 0x08, 0x248])? + 0x90;
         self.position_at(vector, vector + 8)
