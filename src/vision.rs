@@ -141,6 +141,12 @@ fn classify(lines: &[Line]) -> String {
     if text.contains("charger") && text.contains("sauvegarder") {
         return "pause".into();
     }
+    if text.contains("charger")
+        && (text.contains("continuer") || text.contains("reprendre"))
+        && text.contains("nouvelle")
+    {
+        return "title".into();
+    }
     if (text.contains("journal") || text.contains("lournal"))
         && text.contains("histoire")
         && text.contains("factions")

@@ -46,6 +46,18 @@ impl Script {
         engine.register_fn("find_ui", find_ui);
         engine.register_fn("find_ui_in", find_ui_in);
         engine.register_fn("inventory_count", inventory_count);
+        engine.register_fn(
+            "navigation_step",
+            |world: Dynamic,
+             memory: Dynamic,
+             goal: Dynamic|
+             -> Result<Dynamic, Box<rhai::EvalAltResult>> {
+                let world = rhai::serde::from_dynamic::<World>(&world)?;
+                let memory = rhai::serde::from_dynamic::<Value>(&memory)?;
+                let goal = rhai::serde::from_dynamic::<crate::navigation::Goal>(&goal)?;
+                rhai::serde::to_dynamic(crate::navigation::step(&world, &memory, &goal))
+            },
+        );
         let ast = engine.compile(source).context("Invalid Rhai task")?;
         Ok(Self {
             engine,

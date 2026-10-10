@@ -29,6 +29,7 @@ pub struct Options {
     pub frames: bool,
     pub models: Option<PathBuf>,
     pub params: Option<PathBuf>,
+    pub allow_title: bool,
 }
 struct Events {
     file: File,
@@ -150,15 +151,21 @@ pub fn run(options: Options) -> Result<()> {
                             );
                         }
                     }
+                    let title_action = options.allow_title
+                        && action.cursor.is_some()
+                        && action.ui_mode.as_deref() == Some("title")
+                        && world.ui.as_ref().is_some_and(|ui| ui.mode == "title")
+                        && action.keys.iter().all(|v| v == "click");
                     ensure!(
-                        world.player_resolved,
+                        title_action || world.player_resolved,
                         "Cannot act without a validated controlled body"
                     );
                     ensure!(
-                        world
-                            .stats
-                            .iter()
-                            .any(|stat| stat.kind == 0 && stat.current > 0.0),
+                        title_action
+                            || world
+                                .stats
+                                .iter()
+                                .any(|stat| stat.kind == 0 && stat.current > 0.0),
                         "Cannot act without living player health"
                     );
                     ensure!(

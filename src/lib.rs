@@ -7,6 +7,7 @@ pub mod game;
 pub mod inventory;
 pub mod memory;
 pub mod model;
+pub mod navigation;
 pub mod runtime;
 pub mod script;
 pub mod vision;

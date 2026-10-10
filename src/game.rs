@@ -281,9 +281,9 @@ impl Game {
     }
     fn position_at(&self, xy: u64, z: u64) -> Result<Position> {
         let position = Position {
-            x: self.memory.f32(xy)?,
-            y: self.memory.f32(xy + 4)?,
-            z: self.memory.f32(z)?,
+            x: self.memory.f32(xy)? as f64,
+            y: self.memory.f32(xy + 4)? as f64,
+            z: self.memory.f32(z)? as f64,
         };
         ensure!(position.valid(), "Invalid position");
         Ok(position)

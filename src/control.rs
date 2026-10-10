@@ -65,8 +65,8 @@ impl Action {
         if let Some([x, y]) = self.cursor {
             ensure!(x < 7680 && y < 4320, "Cursor outside supported dimensions");
             ensure!(
-                self.ui_mode.as_deref() == Some("journal"),
-                "Cursor actions require recognized journal"
+                matches!(self.ui_mode.as_deref(), Some("journal" | "title")),
+                "Cursor actions require a recognized supported menu"
             );
             ensure!(
                 self.keys.iter().all(|v| v == "click"),

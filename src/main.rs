@@ -9,6 +9,8 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Launch the local game through Steam. Does not load a save or send inputs.
+    Launch,
     /// Resolve signatures and report available observations. Sends no controls.
     Observe,
     /// Search structurally validated character-manager roots. Read-only.
@@ -50,10 +52,19 @@ enum Command {
         models: Option<std::path::PathBuf>,
         #[arg(long)]
         params: Option<std::path::PathBuf>,
+        #[arg(long)]
+        allow_title: bool,
     },
 }
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::Launch => {
+            let status = std::process::Command::new("steam")
+                .arg("steam://rungameid/3321460")
+                .env("DISPLAY", ":0")
+                .status()?;
+            anyhow::ensure!(status.success(), "Steam launch request failed");
+        }
         Command::Observe => {
             let mut game = game::Game::attach()?;
             println!("{}", serde_json::to_string_pretty(&game.observe()?)?);
@@ -103,6 +114,7 @@ fn main() -> Result<()> {
             state_dir,
             models,
             params,
+            allow_title,
         } => {
             runtime::run(runtime::Options {
                 script,
@@ -111,6 +123,7 @@ fn main() -> Result<()> {
                 frames,
                 models,
                 params,
+                allow_title,
                 save_root: save_root.unwrap_or(backup::default_save_root()?),
                 state: state_dir.unwrap_or(runtime::default_state()?),
             })?;

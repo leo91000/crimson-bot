@@ -71,6 +71,10 @@ Les sessions et sauvegardes sont privées dans `~/.local/state/crimson-bot`. Arr
 
 `catalog Lavender` recherche dans les définitions chargées par le jeu. Le catalogue reste dans l'adaptateur Rust, hors du contexte complet envoyé à chaque tick.
 
+`navigation_step(world, memory, goal)` est décrit dans [NAVIGATION.md](NAVIGATION.md). Les coordonnées de l'API sont des f64 ; les données du jeu sont lues en f32 puis converties, pour conserver une interface cohérente avec Rhai.
+
+`launch` demande à Steam d'ouvrir le jeu sans charger une sauvegarde. Le script `resume_latest.rhai` exige `--allow-title` pour pouvoir choisir l'option Continuer du menu principal après sauvegarde de secours ; il ne choisit jamais Nouvelle partie, une sauvegarde arbitraire ou une résolution de conflit cloud. Sans ce drapeau, les commandes exigent toujours un personnage vivant identifié.
+
 `tasks/gather_nearby.rhai` est une capacité de récolte à proximité : elle exige le nom de la ressource et l'indication de prise dans la zone d'interaction, puis confirme une hausse d'inventaire. Elle ne fournit pas encore la navigation jusqu'à une plante. La validation de ce script est actuellement synthétique.
 
 Une exécution à blanc ne simule pas les effets : un script qui attend un mouvement réel peut se bloquer à cette étape. Les tests synthétiques vérifient séparément les transitions du moteur.
