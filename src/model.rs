@@ -1,0 +1,39 @@
+use serde::{Deserialize, Serialize};
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Position {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+impl Position {
+    pub fn valid(&self) -> bool {
+        [self.x, self.y, self.z]
+            .iter()
+            .all(|v| v.is_finite() && v.abs() < 1_000_000.0)
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Stat {
+    pub kind: u32,
+    pub current: f64,
+    pub maximum: f64,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Item {
+    pub storage: u16,
+    pub type_id: u16,
+    pub quantity: i64,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct World {
+    pub pid: u32,
+    pub observed_at_ms: u64,
+    pub player_resolved: bool,
+    pub position: Option<Position>,
+    pub stats: Vec<Stat>,
+    // None means unavailable; empty means a validated, empty inventory.
+    pub inventory: Option<Vec<Item>>,
+    pub characters: usize,
+    pub capabilities: Vec<String>,
+    pub diagnostics: serde_json::Value,
+}
