@@ -63,6 +63,14 @@ crimson-bot run tasks/probe_movement.rhai --seconds 5 --frames
 
 Le dernier exemple émet des commandes et exige un jeu en cours, un personnage vivant identifié et le focus du jeu. Une sauvegarde indépendante est créée et vérifiée avant la création du périphérique virtuel.
 
-Les sessions et sauvegardes sont privées dans `~/.local/state/crimson-bot`. Arrêt : Ctrl-C ou création du fichier `~/.local/state/crimson-bot/STOP`. Supprimer ce fichier explicitement avant une nouvelle exécution. Une seule instance peut contrôler le jeu pour un répertoire d'état donné.
+Les sessions et sauvegardes sont privées dans `~/.local/state/crimson-bot`. Arrêt : Ctrl-C ou création du fichier `~/.local/state/crimson-bot/STOP`. Supprimer ce fichier explicitement avant une nouvelle exécution. Une seule instance par utilisateur peut contrôler le jeu, même avec des répertoires de session différents.
+
+`find_ui_in(ui, text, left, top, right, bottom)` limite la recherche à une région normalisée entre 0 et 1. Les coordonnées sont calculées à partir du centre médian des caractères pour éviter qu'un espace de fin de ligne ne déplace le clic vers une carte voisine. Les scripts vérifient ensuite le titre et le type de page attendu.
+
+`item_type_id(item_key)` résout une clé stable vers l'index utilisé par le processus actuel. `inventory_count(inventory, storage, type_id)` somme les piles dans un stockage explicite. Les index changent entre les builds ; une clé stable ne doit jamais être utilisée directement comme index d'inventaire.
+
+`catalog Lavender` recherche dans les définitions chargées par le jeu. Le catalogue reste dans l'adaptateur Rust, hors du contexte complet envoyé à chaque tick.
+
+`tasks/gather_nearby.rhai` est une capacité de récolte à proximité : elle exige le nom de la ressource et l'indication de prise dans la zone d'interaction, puis confirme une hausse d'inventaire. Elle ne fournit pas encore la navigation jusqu'à une plante. La validation de ce script est actuellement synthétique.
 
 Une exécution à blanc ne simule pas les effets : un script qui attend un mouvement réel peut se bloquer à cette étape. Les tests synthétiques vérifient séparément les transitions du moteur.

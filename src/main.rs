@@ -1,14 +1,6 @@
-mod backup;
-mod capture;
-mod control;
-mod game;
-mod memory;
-mod model;
-mod runtime;
-mod script;
-mod vision;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use crimson_bot::{backup, capture, game, runtime, vision};
 #[derive(Parser)]
 #[command(about = "Local, read-only game observations and autonomous Rhai tasks")]
 struct Cli {
@@ -21,6 +13,8 @@ enum Command {
     Observe,
     /// Search structurally validated character-manager roots. Read-only.
     Discover,
+    /// Search the live game's item definitions. Does not expose the whole table by default.
+    Catalog { query: String },
     /// Make an independent, verified backup. Never restores or overwrites a save.
     Backup {
         #[arg(long)]
@@ -67,6 +61,20 @@ fn main() -> Result<()> {
         Command::Discover => {
             let game = game::Game::attach()?;
             println!("{}", serde_json::to_string_pretty(&game.discover()?)?);
+        }
+        Command::Catalog { query } => {
+            let game = game::Game::attach()?;
+            let query = query.to_lowercase();
+            let items: Vec<_> = game
+                .catalog
+                .values()
+                .filter(|item| {
+                    item.internal_name.to_lowercase().contains(&query)
+                        || item.key.to_string() == query
+                })
+                .take(30)
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&items)?);
         }
         Command::Backup {
             save_root,

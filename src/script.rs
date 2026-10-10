@@ -44,6 +44,8 @@ impl Script {
             (bx - ax).atan2(bz - az)
         });
         engine.register_fn("find_ui", find_ui);
+        engine.register_fn("find_ui_in", find_ui_in);
+        engine.register_fn("inventory_count", inventory_count);
         let ast = engine.compile(source).context("Invalid Rhai task")?;
         Ok(Self {
             engine,
@@ -88,27 +90,156 @@ impl Script {
         self.goal = goal;
         Ok(())
     }
+    pub fn set_catalog(
+        &mut self,
+        catalog: &std::collections::BTreeMap<u16, crate::catalog::CatalogItem>,
+    ) {
+        let mut by_key: std::collections::BTreeMap<u32, Vec<u16>> = Default::default();
+        for item in catalog.values() {
+            by_key.entry(item.key).or_default().push(item.type_id);
+        }
+        self.engine
+            .register_fn("item_type_id", move |key: i64| -> Dynamic {
+                let Ok(key) = u32::try_from(key) else {
+                    return Dynamic::UNIT;
+                };
+                let Some(ids) = by_key.get(&key) else {
+                    return Dynamic::UNIT;
+                };
+                if ids.len() != 1 {
+                    return Dynamic::UNIT;
+                }
+                Dynamic::from_int(ids[0] as i64)
+            });
+    }
 }
 fn find_ui(ui: Dynamic, wanted: &str) -> Result<Dynamic, Box<rhai::EvalAltResult>> {
+    find_ui_in(ui, wanted, 0.0, 0.0, 1.0, 1.0)
+}
+fn inventory_count(
+    items: Dynamic,
+    storage: i64,
+    type_id: i64,
+) -> Result<i64, Box<rhai::EvalAltResult>> {
+    let storage = u16::try_from(storage).map_err(|_| "Invalid storage id")?;
+    let type_id = u16::try_from(type_id).map_err(|_| "Invalid item id")?;
+    let items = rhai::serde::from_dynamic::<Option<Vec<crate::model::Item>>>(&items)?;
+    crate::inventory::count(items.as_deref(), storage, type_id).map_err(|e| e.to_string().into())
+}
+fn find_ui_in(
+    ui: Dynamic,
+    wanted: &str,
+    left: f64,
+    top: f64,
+    right: f64,
+    bottom: f64,
+) -> Result<Dynamic, Box<rhai::EvalAltResult>> {
     let ui = rhai::serde::from_dynamic::<crate::vision::Ui>(&ui)?;
-    let wanted = crate::vision::normalize(wanted);
-    let found: Vec<_> = ui
-        .words
+    if ![left, top, right, bottom]
         .iter()
-        .filter(|word| crate::vision::normalize(&word.text) == wanted)
-        .collect();
+        .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+        || right <= left
+        || bottom <= top
+    {
+        return Err("Invalid normalized UI region".into());
+    }
+    let wanted = crate::vision::normalize(wanted);
+    let wanted_chars: Vec<_> = wanted.chars().collect();
+    if wanted_chars.is_empty() {
+        return Ok(Dynamic::UNIT);
+    }
+    let mut found = vec![];
+    for word in &ui.words {
+        if crate::vision::normalize(&word.text) == wanted {
+            let point = glyph_center(&word.glyphs).unwrap_or((
+                (word.left + word.right) / 2.0,
+                (word.top + word.bottom) / 2.0,
+            ));
+            found.push(point);
+            continue;
+        }
+        let letters: Vec<_> = word
+            .glyphs
+            .iter()
+            .map(|c| {
+                crate::vision::normalize(&c.text)
+                    .chars()
+                    .next()
+                    .unwrap_or(' ')
+            })
+            .collect();
+        for (offset, window) in letters.windows(wanted_chars.len()).enumerate() {
+            if window != wanted_chars {
+                continue;
+            }
+            let span = &word.glyphs[offset..offset + wanted_chars.len()];
+            if let Some(point) = glyph_center(span) {
+                found.push(point);
+            }
+        }
+    }
+    found.retain(|&(x, y)| {
+        let x = x / ui.width as f64;
+        let y = y / ui.height as f64;
+        x >= left && x <= right && y >= top && y <= bottom
+    });
     if found.len() != 1 {
         return Ok(Dynamic::UNIT);
     }
-    let word = found[0];
-    rhai::serde::to_dynamic(
-        json!({"x":((word.left+word.right)/2.0) as u32,"y":((word.top+word.bottom)/2.0) as u32}),
-    )
+    let (x, y) = found[0];
+    rhai::serde::to_dynamic(json!({"x":x as u32,"y":y as u32}))
+}
+fn glyph_center(glyphs: &[crate::vision::Glyph]) -> Option<(f64, f64)> {
+    let mut xs = vec![];
+    let mut ys = vec![];
+    for glyph in glyphs {
+        let x = (glyph.left + glyph.right) / 2.0;
+        let y = (glyph.top + glyph.bottom) / 2.0;
+        if !x.is_finite() || !y.is_finite() {
+            continue;
+        }
+        xs.push(x);
+        ys.push(y);
+    }
+    if xs.is_empty() {
+        return None;
+    }
+    xs.sort_by(f64::total_cmp);
+    ys.sort_by(f64::total_cmp);
+    let median = |values: &[f64]| (values[(values.len() - 1) / 2] + values[values.len() / 2]) / 2.0;
+    Some((median(&xs), median(&ys)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn trailing_ocr_whitespace_does_not_shift_selection_into_neighbor() {
+        let glyphs = vec![
+            crate::vision::Glyph {
+                text: "a".into(),
+                left: 10.0,
+                top: 0.0,
+                right: 20.0,
+                bottom: 10.0,
+            },
+            crate::vision::Glyph {
+                text: "b".into(),
+                left: 20.0,
+                top: 0.0,
+                right: 30.0,
+                bottom: 10.0,
+            },
+            crate::vision::Glyph {
+                text: "c".into(),
+                left: 30.0,
+                top: 0.0,
+                right: 500.0,
+                bottom: 10.0,
+            },
+        ];
+        assert_eq!(glyph_center(&glyphs), Some((25.0, 5.0)));
+    }
     fn world() -> World {
         World {
             pid: 1,
@@ -148,10 +279,12 @@ mod tests {
             top: 20.0,
             right: 30.0,
             bottom: 40.0,
+            glyphs: vec![],
         };
         let mut w = world();
         w.ui = Some(crate::vision::Ui {
             mode: "journal".into(),
+            page: "unknown".into(),
             lines: vec![word.clone()],
             words: vec![word.clone()],
             width: 1920,
@@ -172,5 +305,59 @@ mod tests {
         assert_eq!(script.tick(&w, 0).unwrap().memory, json!({"x":20,"y":30}));
         w.ui.as_mut().unwrap().words.push(word);
         assert_eq!(script.tick(&w, 1).unwrap().memory, Value::Null);
+    }
+    #[test]
+    fn gather_requires_named_prompt_and_measured_inventory_result() {
+        let mut w = world();
+        w.inventory = Some(vec![crate::model::Item {
+            storage: 1,
+            type_id: 1189,
+            quantity: 4,
+        }]);
+        let plant = crate::vision::Line {
+            text: "Lavande".into(),
+            left: 550.0,
+            top: 400.0,
+            right: 650.0,
+            bottom: 430.0,
+            glyphs: vec![],
+        };
+        let pickup = crate::vision::Line {
+            text: "Prendre".into(),
+            left: 550.0,
+            top: 435.0,
+            right: 650.0,
+            bottom: 460.0,
+            glyphs: vec![],
+        };
+        w.ui = Some(crate::vision::Ui {
+            mode: "world".into(),
+            page: "unknown".into(),
+            lines: vec![plant.clone(), pickup.clone()],
+            words: vec![plant, pickup],
+            width: 1000,
+            height: 1000,
+            processing_ms: 1,
+        });
+        let mut script = Script::compile(include_str!("../tasks/gather_nearby.rhai")).unwrap();
+        script.set_catalog(&std::collections::BTreeMap::from([(
+            1189,
+            crate::catalog::CatalogItem {
+                type_id: 1189,
+                key: 751107,
+                internal_name: "Lavender".into(),
+            },
+        )]));
+        script
+            .configure(json!({"item_name":"Lavande","item_key":751107,"storage":1,"amount":1}))
+            .unwrap();
+        assert!(script.tick(&w, 0).unwrap().action.is_none());
+        assert_eq!(
+            script.tick(&w, 1).unwrap().action.unwrap().keys,
+            ["interact"]
+        );
+        assert_eq!(script.tick(&w, 100).unwrap().status, "running");
+        w.inventory.as_mut().unwrap()[0].quantity = 5;
+        assert_eq!(script.tick(&w, 6000).unwrap().status, "succeeded");
     }
 }

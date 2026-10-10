@@ -8,5 +8,7 @@
   "world_position_offset": 668,
   "position_status": "verified_controlled_movement",
   "inventory_component_offset": "0xb8",
-  "inventory_slot_stride": 200
+  "inventory_slot_stride": 200,
+  "item_info_manager_rva": "0x6cf30d0",
+  "item_definitions_offset": "0x58"
 }

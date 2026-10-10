@@ -23,6 +23,7 @@ pub struct Game {
     xyz: Option<(u64, u64)>,
     client_global: Option<u64>,
     profile: Option<serde_json::Value>,
+    pub catalog: std::collections::BTreeMap<u16, crate::catalog::CatalogItem>,
     pub diagnostics: serde_json::Value,
 }
 impl Game {
@@ -157,7 +158,12 @@ impl Game {
             client_global = Some(memory.base + client_rva);
             manager_global = Some(memory.base + server_rva);
         }
-        let diagnostics = json!({"profile":profile.as_ref().map(|v|v["name"].clone()),"executable_sha256": fingerprint, "image_size": memory.image_size, "module_base": format!("{:#x}",memory.base),
+        let catalog = if profile.is_some() {
+            crate::catalog::read(&memory, 0x6cf30d0).unwrap_or_default()
+        } else {
+            Default::default()
+        };
+        let diagnostics = json!({"catalog_items":catalog.len(),"profile":profile.as_ref().map(|v|v["name"].clone()),"executable_sha256": fingerprint, "image_size": memory.image_size, "module_base": format!("{:#x}",memory.base),
             "manager_anchors": signatures, "manager_roots": votes.iter().map(|v|format!("{v:#x}")).collect::<Vec<_>>(),
             "inventory_signature_matches": inv_hits.len(), "xyz_signature_matches": xyz_hits.len()});
         Ok(Self {
@@ -167,6 +173,7 @@ impl Game {
             xyz,
             client_global,
             profile,
+            catalog,
             diagnostics,
         })
     }

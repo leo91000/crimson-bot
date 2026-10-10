@@ -57,13 +57,15 @@ pub fn run(options: Options) -> Result<()> {
         .transpose()?;
     fs::create_dir_all(&options.state)?;
     fs::set_permissions(&options.state, fs::Permissions::from_mode(0o700))?;
+    let control_root = default_state()?;
+    fs::create_dir_all(&control_root)?;
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
         .read(true)
         .write(true)
         .mode(0o600)
-        .open(options.state.join("control.lock"))?;
+        .open(control_root.join("control.lock"))?;
     lock.try_lock_exclusive()
         .context("Another runtime owns game control")?;
     let id = SystemTime::now()
@@ -85,6 +87,7 @@ pub fn run(options: Options) -> Result<()> {
         Some(backup::snapshot(&options.save_root, &options.state)?)
     };
     let mut game = Game::attach()?;
+    script.set_catalog(&game.catalog);
     let initial = game.observe()?;
     events.write(json!({"event":"start","dry_run":options.dry_run,"script":options.script,"backup":backup,"world":initial}))?;
     let stop = Arc::new(AtomicBool::new(false));

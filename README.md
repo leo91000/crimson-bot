@@ -24,6 +24,8 @@ Voir le [cahier des charges](docs/REQUIREMENTS.md), l'[architecture](docs/ARCHIT
 
 Le [guide de scripting](docs/SCRIPTING.md) détaille les scripts Rhai, les commandes et l'installation sur SteamOS.
 
+Le projet fournit aussi une bibliothèque Rust (`crimson_bot`) pour développer les adaptateurs et capacités avec des observations synthétiques. La lecture de l'interface en local est décrite dans [VISION.md](docs/VISION.md).
+
 ## Développement
 
 ```sh

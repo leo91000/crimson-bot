@@ -13,3 +13,7 @@ Stratégie : retrouver les signatures en mémoire, exiger des résolutions non a
 Les anciens motifs ne correspondent pas au binaire installé. Une exploration des pointeurs statiques et la lecture du RTTI MSVC ont identifié les gestionnaires client et serveur. Le gestionnaire serveur expose une liste à +0xB8 ; le personnage contrôlé est validé par la possession aller-retour. Le gestionnaire client expose le corps actif à +0x50. Les deux identifiants sont comparés avant de lire le composant de transformation client à +0x1A0.
 
 La position globale observée est à +0x29C dans ce composant. Le profil contient seulement des RVA et des offsets, jamais les adresses privées d'une session. Il exige l'empreinte exacte du fichier exécutable et revalide les types et identités à chaque observation.
+
+`ItemInfoManager` : racine +0x6CF30D0, compte à +0x08, définitions à +0x58. La liste à +0x50 contient les structures de recherche, pas les définitions complètes de ce build. Une définition expose la clé u32 à +0x00 et l'objet chaîne du nom interne à +0x08. Les clés de romarin et lavande ont été recoupées avec la [base communautaire](https://github.com/NattKh/CrimsonDesertCommunityItemMapping), puis les index ont été obtenus dans le processus, sans importer cette base dans le runtime.
+
+Les tentatives de récolte doivent utiliser ces clés stables, une indication d'interaction reconnue et un résultat d'inventaire mesuré. La découverte des plantes dans le monde et la navigation restent à implémenter et à vérifier.

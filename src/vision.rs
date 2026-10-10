@@ -11,10 +11,22 @@ pub struct Line {
     pub top: f64,
     pub right: f64,
     pub bottom: f64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub glyphs: Vec<Glyph>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Glyph {
+    pub text: String,
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Ui {
     pub mode: String,
+    #[serde(default)]
+    pub page: String,
     pub lines: Vec<Line>,
     pub words: Vec<Line>,
     pub width: u32,
@@ -69,6 +81,17 @@ impl Vision {
                     top: rect.top() as f64 * scale,
                     right: rect.right() as f64 * scale,
                     bottom: rect.bottom() as f64 * scale,
+                    glyphs: word
+                        .chars()
+                        .iter()
+                        .map(|c| Glyph {
+                            text: c.char.to_string(),
+                            left: c.rect.left() as f64 * scale,
+                            top: c.rect.top() as f64 * scale,
+                            right: c.rect.right() as f64 * scale,
+                            bottom: c.rect.bottom() as f64 * scale,
+                        })
+                        .collect(),
                 });
             }
             lines.push(Line {
@@ -77,11 +100,30 @@ impl Vision {
                 top: rect.top() as f64 * scale,
                 right: rect.right() as f64 * scale,
                 bottom: rect.bottom() as f64 * scale,
+                glyphs: vec![],
             });
         }
         let mode = classify(&lines);
+        let text = lines
+            .iter()
+            .map(|line| normalize(&line.text))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let page = if mode == "journal"
+            && ["serkis", "roberts", "alfonso"]
+                .iter()
+                .all(|name| text.contains(name))
+        {
+            "faction_index"
+        } else if mode == "journal" && text.contains("en cours") && text.contains("termine") {
+            "story_index"
+        } else {
+            "unknown"
+        }
+        .to_owned();
         Ok(Ui {
             mode,
+            page,
             lines,
             words,
             width,
@@ -140,6 +182,7 @@ mod tests {
             top: 0.0,
             right: 1.0,
             bottom: 1.0,
+            glyphs: vec![],
         }];
         assert_eq!(classify(&lines), "pause");
     }
