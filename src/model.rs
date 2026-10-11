@@ -33,6 +33,8 @@ pub struct World {
     pub stats: Vec<Stat>,
     // None means unavailable; empty means a validated, empty inventory.
     pub inventory: Option<Vec<Item>>,
+    #[serde(default)]
+    pub resource_candidates: Option<Vec<crate::resources::Candidate>>,
     pub ui: Option<crate::vision::Ui>,
     pub characters: usize,
     pub capabilities: Vec<String>,

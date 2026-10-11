@@ -24,6 +24,8 @@ enum Command {
     },
     /// Search the live game's item definitions. Does not expose the whole table by default.
     Catalog { query: String },
+    /// Search nearby collection scene candidates. Sends no controls.
+    Resources { query: String },
     /// Make an independent, verified backup. Never restores or overwrites a save.
     Backup {
         #[arg(long)]
@@ -100,6 +102,19 @@ fn main() -> Result<()> {
                 .take(30)
                 .collect();
             println!("{}", serde_json::to_string_pretty(&items)?);
+        }
+        Command::Resources { query } => {
+            let world = game::Game::attach()?.observe()?;
+            let candidates = world
+                .resource_candidates
+                .ok_or_else(|| anyhow::anyhow!("Collection scenes unavailable"))?;
+            let query = query.to_lowercase();
+            let found: Vec<_> = candidates
+                .into_iter()
+                .filter(|c| c.prefab.to_lowercase().contains(&query))
+                .take(10)
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&found)?);
         }
         Command::Backup {
             save_root,

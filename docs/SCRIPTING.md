@@ -79,4 +79,6 @@ Les coordonnées des paramètres JSON peuvent être des entiers ou des décimale
 
 `tasks/gather_nearby.rhai` est une capacité de récolte à proximité : elle exige le nom de la ressource et l'indication de prise dans la zone d'interaction, puis confirme une hausse d'inventaire. Elle ne fournit pas encore la navigation jusqu'à une plante. La validation de ce script est actuellement synthétique.
 
+`tasks/route_gather.rhai` compose la [découverte des scènes](SCENE.md), la navigation par segments et la confirmation d'inventaire. Paramètres : `prefab_suffix`, `item_name` localisé, clé stable `item_key`, `storage`, `amount`. Le script choisit un candidat à moins de 80 unités et trois unités d'écart d'altitude, s'arrête sur perte de santé ou d'identité et borne les segments et tentatives de prise. Son premier essai en jeu s'est arrêté sur un obstacle sans perte de santé ; la récolte complète reste à valider.
+
 Une exécution à blanc ne simule pas les effets : un script qui attend un mouvement réel peut se bloquer à cette étape. Les tests synthétiques vérifient séparément les transitions du moteur.

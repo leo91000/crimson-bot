@@ -58,7 +58,7 @@ fn prefab(bytes: &[u8]) -> Option<String> {
 }
 
 /// A pointer association is a research hint, not proof that an actor is a plant.
-/// Per actor: at most 256 nodes, 5 edges deep, and 2 KiB for the root / 512 B per node.
+/// Per actor: at most 256 nodes, 5 edges deep, and 256 B for the root / 512 B per node.
 pub fn probe(reader: &impl Reader, actor: u64) -> Report {
     let mut pending = VecDeque::from([(actor, vec![])]);
     let mut seen = BTreeSet::from([actor]);
@@ -73,7 +73,7 @@ pub fn probe(reader: &impl Reader, actor: u64) -> Report {
             break;
         }
         report.nodes_read += 1;
-        let Ok(bytes) = reader.read(address, if offsets.is_empty() { 0x800 } else { 0x200 }) else {
+        let Ok(bytes) = reader.read(address, if offsets.is_empty() { 0x100 } else { 0x200 }) else {
             continue;
         };
         let path = prefab(&bytes);

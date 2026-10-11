@@ -28,6 +28,11 @@ fn height() -> f64 {
     0.5
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+struct Obstacle {
+    key: String,
+    position: Position,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct State {
     anchor: Position,
     previous: Position,
@@ -36,6 +41,10 @@ pub struct State {
     right: Option<[f64; 2]>,
     last_key: String,
     stuck: u8,
+    #[serde(default)]
+    obstacles: Vec<Obstacle>,
+    #[serde(default)]
+    recoveries: u8,
 }
 fn blocked(reason: &str) -> Decision {
     Decision {
@@ -91,6 +100,8 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
             right: None,
             last_key: String::new(),
             stuck: 0,
+            obstacles: vec![],
+            recoveries: 0,
         }
     } else {
         match serde_json::from_value::<State>(memory.clone()) {
@@ -107,6 +118,12 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
         || state.right.is_some_and(|v| !axis_valid(v))
         || (state.phase != "back_probe" && state.forward.is_none())
         || state.stuck >= 3
+        || state.recoveries > 6
+        || state.obstacles.len() > 6
+        || state.obstacles.iter().any(|o| {
+            !o.position.valid()
+                || !["forward", "backward", "left", "right"].contains(&o.key.as_str())
+        })
         || !["back_probe", "right_probe", "travel"].contains(&state.phase.as_str())
     {
         return blocked("Invalid navigation state");
@@ -171,8 +188,19 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
             }
         } else {
             state.stuck += 1;
-            if state.stuck >= 3 {
-                return blocked("Repeated motion without coordinate progress");
+            if state.stuck >= 2 {
+                if state.recoveries >= 6 {
+                    return blocked("Local obstacle recovery budget exhausted");
+                }
+                if state.obstacles.len() >= 6 {
+                    state.obstacles.remove(0);
+                }
+                state.obstacles.push(Obstacle {
+                    key: state.last_key.clone(),
+                    position: position.clone(),
+                });
+                state.recoveries += 1;
+                state.stuck = 0;
             }
         }
     } else {
@@ -192,11 +220,39 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
     }
     let key = choices
         .into_iter()
+        .filter(|(key, _)| {
+            !state.obstacles.iter().any(|o| {
+                o.key == *key && (position.x - o.position.x).hypot(position.z - o.position.z) < 0.9
+            })
+        })
         .max_by(|a, b| a.1.total_cmp(&b.1))
-        .unwrap()
-        .0;
+        .map(|entry| entry.0);
+    let Some(key) = key else {
+        return blocked("All calibrated directions blocked near this position");
+    };
     state.last_key = key.into();
     command(state, key)
+}
+
+/// Start a new bounded segment using the axes learned by a completed segment.
+pub fn retarget(world: &World, memory: &Value, goal: &Goal) -> Decision {
+    let Ok(mut state) = serde_json::from_value::<State>(memory.clone()) else {
+        return blocked("Invalid navigation state");
+    };
+    if state.phase != "travel" || state.forward.is_none() {
+        return blocked("Complete calibration required before retargeting");
+    }
+    let Some(position) = &world.position else {
+        return blocked("Position unavailable");
+    };
+    state.anchor = position.clone();
+    state.previous = position.clone();
+    state.stuck = 0;
+    state.recoveries = 0;
+    state
+        .obstacles
+        .retain(|o| (position.x - o.position.x).hypot(position.z - o.position.z) < 4.0);
+    step(world, &serde_json::to_value(state).unwrap(), goal)
 }
 
 #[cfg(test)]
@@ -214,6 +270,7 @@ mod tests {
             }),
             stats: vec![],
             inventory: None,
+            resource_candidates: None,
             ui: Some(crate::vision::Ui {
                 mode: "world".into(),
                 page: "unknown".into(),
@@ -290,5 +347,50 @@ mod tests {
             assert_eq!(result.status, "blocked");
             assert!(result.action.is_none());
         }
+    }
+    #[test]
+    fn retarget_preserves_axes_and_rejects_incomplete_calibration() {
+        let mut world = world();
+        let goal = Goal {
+            x: 0.0,
+            z: -1.0,
+            radius: 0.2,
+            max_distance: 2.0,
+            max_height_change: 0.5,
+        };
+        let first = step(&world, &json!({}), &goal);
+        assert_eq!(retarget(&world, &first.memory, &goal).status, "blocked");
+        world.position.as_mut().unwrap().z = -0.3;
+        let second = step(&world, &first.memory, &goal);
+        world.position.as_mut().unwrap().z = -1.0;
+        let arrived = step(&world, &second.memory, &goal);
+        let next = Goal { z: -3.0, ..goal };
+        assert_eq!(step(&world, &arrived.memory, &next).status, "blocked");
+        let decision = retarget(&world, &arrived.memory, &next);
+        assert_eq!(decision.status, "running");
+        assert_eq!(decision.action.unwrap().keys, ["backward"]);
+    }
+    #[test]
+    fn measured_lateral_blockage_tries_another_calibrated_axis() {
+        let mut world = world();
+        let goal = Goal {
+            x: -2.0,
+            z: -1.0,
+            radius: 0.2,
+            max_distance: 4.0,
+            max_height_change: 0.5,
+        };
+        let first = step(&world, &json!({}), &goal);
+        world.position.as_mut().unwrap().z = -0.3;
+        let lateral = step(&world, &first.memory, &goal);
+        assert_eq!(lateral.action.unwrap().keys, ["right"]);
+        world.position.as_mut().unwrap().x = 0.3;
+        let left = step(&world, &lateral.memory, &goal);
+        assert_eq!(left.action.unwrap().keys, ["left"]);
+        let still = step(&world, &left.memory, &goal);
+        let recovery = step(&world, &still.memory, &goal);
+        assert_eq!(recovery.status, "running");
+        assert_eq!(recovery.action.unwrap().keys, ["backward"]);
+        assert_eq!(recovery.memory["recoveries"], 1);
     }
 }

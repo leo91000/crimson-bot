@@ -8,6 +8,7 @@ pub mod inventory;
 pub mod memory;
 pub mod model;
 pub mod navigation;
+pub mod resources;
 pub mod runtime;
 pub mod scene;
 pub mod script;

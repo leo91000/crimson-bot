@@ -21,6 +21,8 @@
 - Reprise de la partie depuis le menu principal français « Jouer », avec sauvegarde indépendante préalable et attente de l'interface de jeu reconnue. Aucun choix de sauvegarde ancienne effectué.
 - Navigation locale autonome : calibration d'un recul, cible calculée à une unité du point initial dans cette direction, arrivée observée dans un rayon de 0,2 unité, puis relâchement des commandes. L'essai a terminé avec le statut `succeeded` en environ 22 secondes.
 - Nouvelle lecture de la transformation validée avec secteurs cohérente avec la position observée. Changements de secteur et parent testés sur données synthétiques.
+- Lecture de scènes de collecte chargées : prefab et transformation sectorisée, avec revalidation du type. Les buissons de pivoine proches sont maintenant accessibles à l'API des scripts.
+- Premier trajet de récolte arrêté sur commandes latérales sans mouvement, sans perte de santé. Ce résultat est un blocage constaté, pas une récolte réussie.
 
 ## À valider
 

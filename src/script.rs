@@ -31,6 +31,7 @@ impl Script {
         engine
             .set_max_operations(50_000)
             .set_max_call_levels(24)
+            .set_max_expr_depths(64, 64)
             .set_max_string_size(16_384)
             .set_max_array_size(16_384)
             .set_max_map_size(16_384);
@@ -58,6 +59,20 @@ impl Script {
                 let goal = serde_json::from_value::<crate::navigation::Goal>(goal)
                     .map_err(|e| -> Box<rhai::EvalAltResult> { e.to_string().into() })?;
                 rhai::serde::to_dynamic(crate::navigation::step(&world, &memory, &goal))
+            },
+        );
+        engine.register_fn(
+            "navigation_retarget",
+            |world: Dynamic,
+             memory: Dynamic,
+             goal: Dynamic|
+             -> Result<Dynamic, Box<rhai::EvalAltResult>> {
+                let world = rhai::serde::from_dynamic::<World>(&world)?;
+                let memory = rhai::serde::from_dynamic::<Value>(&memory)?;
+                let goal = rhai::serde::from_dynamic::<Value>(&goal)?;
+                let goal = serde_json::from_value::<crate::navigation::Goal>(goal)
+                    .map_err(|e| -> Box<rhai::EvalAltResult> { e.to_string().into() })?;
+                rhai::serde::to_dynamic(crate::navigation::retarget(&world, &memory, &goal))
             },
         );
         let ast = engine.compile(source).context("Invalid Rhai task")?;
@@ -262,6 +277,7 @@ mod tests {
             position: None,
             stats: vec![],
             inventory: None,
+            resource_candidates: None,
             ui: None,
             characters: 1,
             capabilities: vec![],
@@ -395,6 +411,103 @@ mod tests {
             .configure(json!({"item_name":"Lavande","item_key":751107,"storage":1,"amount":1}))
             .unwrap();
         assert!(script.tick(&w, 0).unwrap().action.is_none());
+        assert_eq!(
+            script.tick(&w, 1).unwrap().action.unwrap().keys,
+            ["interact"]
+        );
+        assert_eq!(script.tick(&w, 100).unwrap().status, "running");
+        w.inventory.as_mut().unwrap()[0].quantity = 5;
+        assert_eq!(script.tick(&w, 6000).unwrap().status, "succeeded");
+    }
+    #[test]
+    fn resource_route_checks_navigation_health_prompt_and_inventory() {
+        let mut w = world();
+        w.position = Some(crate::model::Position {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        });
+        w.stats = vec![crate::model::Stat {
+            kind: 0,
+            current: 100.0,
+            maximum: None,
+        }];
+        w.inventory = Some(vec![crate::model::Item {
+            storage: 1,
+            type_id: 1198,
+            quantity: 4,
+        }]);
+        w.resource_candidates = Some(vec![crate::resources::Candidate {
+            id: "plant".into(),
+            prefab:
+                "/object/cd_gimmick/00_common/collect/plant/gimmick_collect_bush_peony_01.prefab"
+                    .into(),
+            position: crate::model::Position {
+                x: 0.0,
+                y: 0.0,
+                z: -2.0,
+            },
+        }]);
+        w.ui = Some(crate::vision::Ui {
+            mode: "world".into(),
+            page: "unknown".into(),
+            lines: vec![],
+            words: vec![],
+            width: 1000,
+            height: 1000,
+            processing_ms: 0,
+        });
+        let start = || {
+            let mut script = Script::compile(include_str!("../tasks/route_gather.rhai")).unwrap();
+            script.set_catalog(&std::collections::BTreeMap::from([(
+                1198,
+                crate::catalog::CatalogItem {
+                    type_id: 1198,
+                    key: 757006,
+                    internal_name: "Peony".into(),
+                },
+            )]));
+            script.configure(json!({"prefab_suffix":"gimmick_collect_bush_peony_01.prefab","item_name":"Pivoine","item_key":757006,"storage":1,"amount":1})).unwrap();
+            script
+        };
+        let mut script = start();
+        assert!(script.tick(&w, 0).unwrap().action.is_none());
+        assert_eq!(
+            script.tick(&w, 1).unwrap().action.unwrap().keys,
+            ["backward"]
+        );
+        w.position.as_mut().unwrap().z = -0.3;
+        assert_eq!(script.tick(&w, 2).unwrap().status, "running");
+        w.position.as_mut().unwrap().z = -1.2;
+        let near = script.tick(&w, 3).unwrap();
+        assert_eq!(near.status, "blocked");
+        assert!(near.action.is_none());
+        let mut script = start();
+        script.tick(&w, 0).unwrap();
+        w.stats[0].current = 99.0;
+        let hurt = script.tick(&w, 1).unwrap();
+        assert_eq!(hurt.status, "blocked");
+        assert!(hurt.action.is_none());
+        w.stats[0].current = 100.0;
+        let word = crate::vision::Line {
+            text: "Pivoine".into(),
+            left: 550.0,
+            top: 400.0,
+            right: 650.0,
+            bottom: 430.0,
+            glyphs: vec![],
+        };
+        w.ui.as_mut().unwrap().words = vec![
+            word.clone(),
+            crate::vision::Line {
+                text: "Prendre".into(),
+                top: 435.0,
+                bottom: 460.0,
+                ..word
+            },
+        ];
+        let mut script = start();
+        script.tick(&w, 0).unwrap();
         assert_eq!(
             script.tick(&w, 1).unwrap().action.unwrap().keys,
             ["interact"]

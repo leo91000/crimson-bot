@@ -8,4 +8,12 @@ Pour chacun des acteurs retenus, le parcours cherche des objets dont le RTTI men
 
 Une association de pointeurs ne prouve ni qu'une plante est présente, ni qu'elle est récoltable, ni que la position appartient à cette ressource. La prochaine validation en jeu doit établir la chaîne exacte vers le prefab, l'identité de l'objet et sa position, puis confirmer l'interaction et le gain d'inventaire. Les rapports réels restent privés.
 
-Les tests synthétiques couvrent la découverte d'un chemin de plante, le filtrage des autres chaînes, les cycles et les graphes denses. L'outil n'a pas encore été exécuté sur la Steam Machine.
+Les tests synthétiques couvrent la découverte d'un chemin de plante, le filtrage des autres chaînes, les cycles et les graphes denses. L'outil a été exécuté sur la Steam Machine : il retrouve des objets de scène, mais un parcours générique peut suivre des voisins d'allocation ou des équipements. Ces associations ne sont donc pas utilisées pour guider le bot.
+
+## Candidats de récolte
+
+L'adaptateur `resources.rs` utilise une lecture plus précise : objets `SceneObjectServer` validés par RTTI, chemin de prefab à +0x38, transformation de monde à +0x1A4 avec secteurs x/z. Les zones explorées doivent contenir un objet de scène validé ; aucun balayage arbitraire de toute la mémoire n'est effectué. Lecture limitée à 256 Mio par découverte, huit zones et 8 192 enregistrements proches. Les petites zones passent en premier pour éviter qu'une grande zone de ressources en cache n'épuise le budget.
+
+L'index est renouvelé toutes les dix secondes. Le type, le chemin et la position sont relus à chaque observation. L'API `world.resource_candidates` contient au maximum 64 candidats dans un rayon de 150 unités ; `None` indique une lecture indisponible. `diagnostics.resource_scan` indique les scans partiels. `crimson-bot resources peony` filtre les candidats chargés, sans commande de jeu.
+
+Les pivoines, arbres fruitiers et variantes de romarin ont été retrouvés en jeu. Les identifiants sont opaques et valables seulement dans le processus actuel. Un enregistrement peut correspondre à un objet désactivé ou déjà récolté : la présence en mémoire reste une proposition de cible. Le script exige encore une interaction nommée et un gain d'inventaire.

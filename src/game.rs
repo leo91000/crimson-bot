@@ -23,6 +23,8 @@ pub struct Game {
     xyz: Option<(u64, u64)>,
     client_global: Option<u64>,
     profile: Option<serde_json::Value>,
+    resource_index: Option<crate::resources::Index>,
+    resource_scan_at: Option<std::time::Instant>,
     pub catalog: std::collections::BTreeMap<u16, crate::catalog::CatalogItem>,
     pub diagnostics: serde_json::Value,
 }
@@ -258,6 +260,8 @@ impl Game {
             xyz,
             client_global,
             profile,
+            resource_index: None,
+            resource_scan_at: None,
             catalog,
             diagnostics,
         })
@@ -433,6 +437,30 @@ impl Game {
             .and_then(|v| self.position(v).ok())
             .or_else(|| self.xyz.and_then(|(xy, z)| self.position_at(xy, z).ok()));
         let inventory = self.inventory().ok();
+        if self.profile.is_some()
+            && owner.is_some()
+            && self
+                .resource_scan_at
+                .is_none_or(|at| at.elapsed().as_secs() >= 10)
+            && let Some(origin) = position.as_ref()
+        {
+            self.resource_scan_at = Some(std::time::Instant::now());
+            match crate::resources::Index::discover(&self.memory, &characters, origin) {
+                Ok(index) => {
+                    self.diagnostics["resource_scan"] = json!({"truncated":index.truncated});
+                    self.resource_index = Some(index);
+                }
+                Err(error) => {
+                    self.diagnostics["resource_scan"] = json!({"reason":error.to_string()});
+                    self.resource_index = None;
+                }
+            }
+        }
+        let resource_candidates = position.as_ref().and_then(|position| {
+            self.resource_index
+                .as_ref()
+                .map(|index| index.nearby(&self.memory, position))
+        });
         let mut capabilities = vec![];
         if owner.is_some() {
             capabilities.push("controlled_body".into());
@@ -453,6 +481,9 @@ impl Game {
         if inventory.is_some() {
             capabilities.push("inventory".into());
         }
+        if resource_candidates.is_some() {
+            capabilities.push("resource_candidates".into());
+        }
         Ok(World {
             pid: self.memory.pid,
             observed_at_ms: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64,
@@ -460,6 +491,7 @@ impl Game {
             position,
             stats,
             inventory,
+            resource_candidates,
             ui: None,
             characters: characters.len(),
             capabilities,

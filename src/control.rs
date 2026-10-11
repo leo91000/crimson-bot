@@ -42,6 +42,7 @@ pub fn key(name: &str) -> Result<Key> {
         "guard" => Key::BTN_RIGHT,
         "lock_on" => Key::BTN_MIDDLE,
         "confirm" => Key::KEY_ENTER,
+        "expand" => Key::KEY_SPACE,
         "up" => Key::KEY_UP,
         "down" => Key::KEY_DOWN,
         _ => bail!("Unknown action binding: {name}"),
