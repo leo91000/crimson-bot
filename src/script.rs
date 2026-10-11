@@ -54,7 +54,9 @@ impl Script {
              -> Result<Dynamic, Box<rhai::EvalAltResult>> {
                 let world = rhai::serde::from_dynamic::<World>(&world)?;
                 let memory = rhai::serde::from_dynamic::<Value>(&memory)?;
-                let goal = rhai::serde::from_dynamic::<crate::navigation::Goal>(&goal)?;
+                let goal = rhai::serde::from_dynamic::<Value>(&goal)?;
+                let goal = serde_json::from_value::<crate::navigation::Goal>(goal)
+                    .map_err(|e| -> Box<rhai::EvalAltResult> { e.to_string().into() })?;
                 rhai::serde::to_dynamic(crate::navigation::step(&world, &memory, &goal))
             },
         );
@@ -272,6 +274,35 @@ mod tests {
         assert_eq!(script.tick(&world(), 0).unwrap().memory["n"], 1);
         assert_eq!(script.tick(&world(), 1).unwrap().memory["n"], 2);
         assert_eq!(script.tick(&world(), 2).unwrap().status, "succeeded");
+    }
+    #[test]
+    fn navigation_accepts_integer_coordinates_from_json_parameters() {
+        let mut world = world();
+        world.position = Some(crate::model::Position {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        });
+        world.ui = Some(crate::vision::Ui {
+            mode: "world".into(),
+            page: "unknown".into(),
+            lines: vec![],
+            words: vec![],
+            width: 100,
+            height: 100,
+            processing_ms: 0,
+        });
+        let mut script =
+            Script::compile("fn tick(ctx) {navigation_step(ctx.world,ctx.memory,ctx.goal)}")
+                .unwrap();
+        script
+            .configure(json!({"x": 0, "z": -1, "max_distance": 2}))
+            .unwrap();
+        let first = script.tick(&world, 0).unwrap();
+        assert_eq!(first.status, "running");
+        assert_eq!(first.action.unwrap().keys, ["backward"]);
+        world.position.as_mut().unwrap().z = -1.0;
+        assert_eq!(script.tick(&world, 1).unwrap().status, "succeeded");
     }
     #[test]
     fn infinite_scripts_and_terminal_inputs_fail() {

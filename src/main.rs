@@ -15,6 +15,13 @@ enum Command {
     Observe,
     /// Search structurally validated character-manager roots. Read-only.
     Discover,
+    /// Read-only scene associations near the player. Hints cannot trigger actions.
+    ProbeScene {
+        #[arg(long, default_value_t = 20.0)]
+        radius: f64,
+        #[arg(long, default_value_t = 4)]
+        actors: usize,
+    },
     /// Search the live game's item definitions. Does not expose the whole table by default.
     Catalog { query: String },
     /// Make an independent, verified backup. Never restores or overwrites a save.
@@ -72,6 +79,13 @@ fn main() -> Result<()> {
         Command::Discover => {
             let game = game::Game::attach()?;
             println!("{}", serde_json::to_string_pretty(&game.discover()?)?);
+        }
+        Command::ProbeScene { radius, actors } => {
+            let game = game::Game::attach()?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&game.probe_scene(radius, actors)?)?
+            );
         }
         Command::Catalog { query } => {
             let game = game::Game::attach()?;

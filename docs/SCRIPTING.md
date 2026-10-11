@@ -73,6 +73,8 @@ Les sessions et sauvegardes sont privées dans `~/.local/state/crimson-bot`. Arr
 
 `navigation_step(world, memory, goal)` est décrit dans [NAVIGATION.md](NAVIGATION.md). Les coordonnées de l'API sont des f64 ; les données du jeu sont lues en f32 puis converties, pour conserver une interface cohérente avec Rhai.
 
+Les coordonnées des paramètres JSON peuvent être des entiers ou des décimales. Un état de calibration incomplet ou invalide bloque la navigation sans commande.
+
 `launch` demande à Steam d'ouvrir le jeu sans charger une sauvegarde. Le script `resume_latest.rhai` exige `--allow-title` pour pouvoir choisir l'option Continuer, Reprendre ou Jouer du menu principal après sauvegarde de secours ; il ne choisit jamais Nouvelle partie, une sauvegarde arbitraire ou une résolution de conflit cloud. Sans ce drapeau, les commandes exigent toujours un personnage vivant identifié.
 
 `tasks/gather_nearby.rhai` est une capacité de récolte à proximité : elle exige le nom de la ressource et l'indication de prise dans la zone d'interaction, puis confirme une hausse d'inventaire. Elle ne fournit pas encore la navigation jusqu'à une plante. La validation de ce script est actuellement synthétique.

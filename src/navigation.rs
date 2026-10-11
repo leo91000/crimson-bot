@@ -98,6 +98,19 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
             Err(_) => return blocked("Invalid navigation state"),
         }
     };
+    let axis_valid = |axis: [f64; 2]| {
+        axis.iter().all(|v| v.is_finite()) && (0.95..=1.05).contains(&axis[0].hypot(axis[1]))
+    };
+    if !state.anchor.valid()
+        || !state.previous.valid()
+        || state.forward.is_some_and(|v| !axis_valid(v))
+        || state.right.is_some_and(|v| !axis_valid(v))
+        || (state.phase != "back_probe" && state.forward.is_none())
+        || state.stuck >= 3
+        || !["back_probe", "right_probe", "travel"].contains(&state.phase.as_str())
+    {
+        return blocked("Invalid navigation state");
+    }
     if (goal.x - state.anchor.x).hypot(goal.z - state.anchor.z) > goal.max_distance
         || (position.x - state.anchor.x).hypot(position.z - state.anchor.z)
             > goal.max_distance * 1.5
@@ -252,5 +265,30 @@ mod tests {
         goal.z = -1.0;
         world.position.as_mut().unwrap().y = -3.0;
         assert_eq!(step(&world, &first.memory, &goal).status, "blocked");
+    }
+    #[test]
+    fn rejects_incomplete_or_corrupt_calibration_without_inputs() {
+        let world = world();
+        let goal = Goal {
+            x: 0.0,
+            z: -1.0,
+            radius: 0.2,
+            max_distance: 2.0,
+            max_height_change: 0.5,
+        };
+        let baseline = step(&world, &json!({}), &goal).memory;
+        for (field, value) in [
+            ("phase", json!("right_probe")),
+            ("phase", json!("unknown")),
+            ("stuck", json!(255)),
+            ("forward", json!([0.0, 0.0])),
+            ("anchor", json!({"x": 1e300, "y": 0.0, "z": 0.0})),
+        ] {
+            let mut memory = baseline.clone();
+            memory[field] = value;
+            let result = step(&world, &memory, &goal);
+            assert_eq!(result.status, "blocked");
+            assert!(result.action.is_none());
+        }
     }
 }

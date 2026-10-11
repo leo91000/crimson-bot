@@ -27,6 +27,91 @@ pub struct Game {
     pub diagnostics: serde_json::Value,
 }
 impl Game {
+    /// Research-only associations. No result is exposed as an actionable target.
+    pub fn probe_scene(&self, radius: f64, limit: usize) -> Result<serde_json::Value> {
+        ensure!(
+            self.profile.is_some(),
+            "Scene probing requires a known build"
+        );
+        ensure!(
+            (0.5..=50.0).contains(&radius) && (1..=8).contains(&limit),
+            "Invalid scene probe bounds"
+        );
+        let actors = self.characters()?;
+        let player = self.controlled(&actors)?;
+        let origin = self.position(player)?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let mut types = std::collections::BTreeMap::new();
+        let mut nearby = vec![];
+        let mut inspected = 0;
+        let mut truncated = false;
+        for actor in actors {
+            if std::time::Instant::now() >= deadline {
+                truncated = true;
+                break;
+            }
+            if actor == player {
+                continue;
+            }
+            inspected += 1;
+            let Ok(registry) = self.memory.ptr(actor + 0x78) else {
+                continue;
+            };
+            let Ok(count) = self.memory.u32(actor + 0x80) else {
+                continue;
+            };
+            if !(1..=128).contains(&count) {
+                continue;
+            }
+            let Ok(entries) = self.memory.read(registry, count as usize * 16) else {
+                continue;
+            };
+            let mut positions = vec![];
+            for record in entries.as_chunks::<16>().0 {
+                let component = u64::from_le_bytes(record[..8].try_into().unwrap());
+                let Ok(table) = self.memory.ptr(component) else {
+                    continue;
+                };
+                let is_transform = *types.entry(table).or_insert_with(|| {
+                    self.memory
+                        .type_name(component)
+                        .is_ok_and(|n| n == ".?AVServerTransformSyncActorComponent@pa@@")
+                });
+                if !is_transform {
+                    continue;
+                }
+                let Some(position) = self
+                    .memory
+                    .read(component + 0xb4, 0x48)
+                    .ok()
+                    .and_then(|data| crate::transform::decode(&data).ok())
+                else {
+                    continue;
+                };
+                positions.push(position);
+            }
+            if positions.len() != 1 {
+                continue;
+            }
+            let position = positions.pop().unwrap();
+            let distance = (position.x - origin.x).hypot(position.z - origin.z);
+            if distance > radius || (position.y - origin.y).abs() > 10.0 {
+                continue;
+            }
+            nearby.push((distance, actor, position));
+        }
+        nearby.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let matching = nearby.len();
+        let mut reports = vec![];
+        for (distance, actor, position) in nearby.into_iter().take(limit) {
+            reports.push(json!({"entity_id": self.memory.u32(actor+0x60).ok(),
+                "candidate_position":position,"distance_xz":distance,
+                "associations":crate::scene::probe(&self.memory,actor)}));
+        }
+        Ok(json!({"research_only":true,"spatially_validated":false,
+            "actors_inspected":inspected,"census_truncated":truncated,
+            "nearby_candidates":matching,"reports":reports}))
+    }
     pub fn discover(&self) -> Result<serde_json::Value> {
         let m = &self.memory;
         let mut roots = vec![];
