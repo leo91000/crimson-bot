@@ -1,6 +1,12 @@
 // Bounded collection trial composed from live scene candidates, navigation and inventory.
 // Parameters: prefab_suffix, item_name (localized), item_key, storage, amount.
 // No quest, spending, attack or irreversible dialogue action is performed.
+fn resume(memory) {
+    // No old key press or camera-dependent calibration is replayed.
+    for key in ["waypoint","pending","closing","ui_missing_since"] {memory.remove(key);}
+    memory.nav=#{};
+    memory
+}
 fn retire_target(memory) {
     memory.completed_ids.push(memory.target.id);
     memory.retired_positions.push(memory.target.position);
@@ -18,7 +24,8 @@ fn tick(ctx) {
         let closes=if m.contains("closes") {m.closes} else {0};
         if m.contains("closing") && ctx.elapsed_ms-m.closing<4000 {return #{status:"running",memory:m};}
         if closes>=6 {return #{status:"blocked",reason:"Could not leave known menus within retry budget"};}
-        return #{status:"running",memory:#{closes:closes+1,closing:ctx.elapsed_ms},action:#{keys:["escape"],ui_mode:w.ui.mode,duration_ms:250}};
+        m.closes=closes+1;m.closing=ctx.elapsed_ms;
+        return #{status:"running",memory:m,action:#{keys:["escape"],ui_mode:w.ui.mode,duration_ms:250}};
     }
     if w.ui.mode!="world" {
         if m.contains("closing") && ctx.elapsed_ms-m.closing<8000 {return #{status:"running",memory:m};}

@@ -18,7 +18,7 @@ pub struct Stat {
     pub current: f64,
     pub maximum: Option<f64>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Item {
     pub storage: u16,
     pub type_id: u16,

@@ -103,6 +103,33 @@ impl Script {
         self.goal = goal;
         Ok(())
     }
+    pub fn restore(&mut self, memory: Value) -> Result<()> {
+        ensure!(
+            memory.is_object() && serde_json::to_vec(&memory)?.len() <= 64 * 1024,
+            "Checkpoint task state must be an object below 64 KiB"
+        );
+        let value: Dynamic = self
+            .engine
+            .call_fn(
+                &mut Scope::new(),
+                &self.ast,
+                "resume",
+                (rhai::serde::to_dynamic(memory)?,),
+            )
+            .context("Task must define a safe resume(memory) hook")?;
+        let memory: Value = rhai::serde::from_dynamic(&value)?;
+        ensure!(
+            memory.is_object() && serde_json::to_vec(&memory)?.len() <= 64 * 1024,
+            "Invalid resumed task state"
+        );
+        self.memory = memory;
+        Ok(())
+    }
+    pub fn resumable(&self) -> bool {
+        self.ast
+            .iter_functions()
+            .any(|f| f.name == "resume" && f.params.len() == 1)
+    }
     pub fn set_catalog(
         &mut self,
         catalog: &std::collections::BTreeMap<u16, crate::catalog::CatalogItem>,
@@ -554,6 +581,24 @@ mod tests {
         let selected = batch.tick(&w, 6001).unwrap();
         assert_eq!(selected.memory["target"]["id"], "second-plant");
         assert_eq!(selected.memory["baseline"], 4);
+        // A fresh engine resumes exclusions and total progress, but discards old calibration.
+        let mut saved = selected.memory.clone();
+        saved["nav"] = json!({"phase":"travel","forward":{"x":0,"z":1}});
+        saved["waypoint"] = json!({"x":0,"z":-3});
+        let mut resumed = start();
+        resumed.configure(json!({"prefab_suffix":"gimmick_collect_bush_peony_01.prefab","item_name":"Pivoine","item_key":757006,"storage":1,"amount":2})).unwrap();
+        resumed.restore(saved).unwrap();
+        let resumed_tick = resumed.tick(&w, 6002).unwrap();
+        assert_eq!(resumed_tick.memory["baseline"], 4);
+        assert_eq!(resumed_tick.memory["completed_ids"], json!(["plant"]));
+        assert_eq!(resumed_tick.memory["target"]["id"], "second-plant");
+        assert_eq!(resumed_tick.memory["nav"], json!({}));
+        assert!(resumed_tick.memory.get("waypoint").is_none());
+        assert_eq!(resumed_tick.action.unwrap().keys, ["interact"]);
+        let mut no_hook =
+            Script::compile("fn tick(ctx) {#{status:\"running\",memory:ctx.memory}}").unwrap();
+        assert!(!no_hook.resumable());
+        assert!(no_hook.restore(json!({})).is_err());
         assert_eq!(
             batch.tick(&w, 6002).unwrap().action.unwrap().keys,
             ["interact"]

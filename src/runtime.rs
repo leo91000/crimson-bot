@@ -31,6 +31,7 @@ pub struct Options {
     pub params: Option<PathBuf>,
     pub allow_title: bool,
     pub movement_layout: crate::control::MovementLayout,
+    pub resume: Option<PathBuf>,
 }
 struct Events {
     file: File,
@@ -48,10 +49,18 @@ pub fn run(options: Options) -> Result<()> {
         (1..=3600).contains(&options.seconds),
         "Run duration outside 1..3600 seconds"
     );
-    let mut script = Script::load(&options.script)?;
-    if let Some(path) = &options.params {
-        script.configure(serde_json::from_slice(&fs::read(path)?)?)?;
-    }
+    ensure!(
+        !options.dry_run || options.resume.is_none(),
+        "Dry runs cannot resume live checkpoints"
+    );
+    let source = fs::read(&options.script)?;
+    let mut script = Script::compile(std::str::from_utf8(&source)?)?;
+    let goal = if let Some(path) = &options.params {
+        serde_json::from_slice(&fs::read(path)?)?
+    } else {
+        json!({})
+    };
+    script.configure(goal.clone())?;
     let vision = options
         .models
         .as_ref()
@@ -91,7 +100,30 @@ pub fn run(options: Options) -> Result<()> {
     let mut game = Game::attach()?;
     script.set_catalog(&game.catalog);
     let initial = game.observe()?;
-    events.write(json!({"event":"start","dry_run":options.dry_run,"script":options.script,"movement_layout":options.movement_layout,"backup":backup,"world":initial}))?;
+    let binding = if script.resumable() && !options.dry_run {
+        Some(crate::checkpoint::Binding::new(
+            &initial,
+            &source,
+            goal,
+            options.movement_layout,
+        )?)
+    } else {
+        None
+    };
+    let mut checkpoint = None;
+    let mut elapsed_offset = 0;
+    if let Some(path) = &options.resume {
+        let binding = binding
+            .as_ref()
+            .context("Task does not support checkpoints")?;
+        let loaded = crate::checkpoint::Checkpoint::read(path)?;
+        loaded.validate(binding, &initial)?;
+        script.restore(loaded.memory.clone())?;
+        elapsed_offset = loaded.elapsed_ms;
+        checkpoint = Some(loaded);
+    }
+    let checkpoint_path = session.join("checkpoint.json");
+    events.write(json!({"event":"start","dry_run":options.dry_run,"script":options.script,"resume":options.resume,"movement_layout":options.movement_layout,"backup":backup,"world":initial}))?;
     let stop = Arc::new(AtomicBool::new(false));
     let handler = stop.clone();
     ctrlc::set_handler(move || {
@@ -123,8 +155,16 @@ pub fn run(options: Options) -> Result<()> {
             };
             let mut world = game.observe()?;
             world.ui = ui;
+            // Perception may take seconds; recheck cancellation before any decision or input.
+            if Instant::now() >= deadline
+                || stop.load(Ordering::SeqCst)
+                || options.state.join("STOP").exists()
+            {
+                break;
+            }
             let observed = Instant::now();
-            let decision = script.tick(&world, start.elapsed().as_millis() as u64)?;
+            let elapsed_ms = elapsed_offset + start.elapsed().as_millis() as u64;
+            let decision = script.tick(&world, elapsed_ms)?;
             events.write(json!({"event":"tick","tick":tick,"world":world,"decision":decision}))?;
             if decision.status != "running" {
                 if options.frames {
@@ -194,6 +234,17 @@ pub fn run(options: Options) -> Result<()> {
             if let Some(control) = controls.as_mut() {
                 control.release()?;
             }
+            if let Some(binding) = &binding {
+                let checkpoint_world = game.observe()?;
+                let current = crate::checkpoint::Checkpoint::new(
+                    binding.clone(),
+                    &checkpoint_world,
+                    decision.memory,
+                    elapsed_ms,
+                )?;
+                current.write(&checkpoint_path)?;
+                checkpoint = Some(current);
+            }
             // Capture after releasing inputs; next tick reacquires the world.
             if options.frames && tick.is_multiple_of(10) {
                 let frame = capture::capture(&session)?;
@@ -212,10 +263,18 @@ pub fn run(options: Options) -> Result<()> {
     if let Some(control) = controls.as_mut() {
         control.release()?;
     }
+    if let Some(mut checkpoint) = checkpoint {
+        checkpoint.outcome = result
+            .as_ref()
+            .map(|v| v.as_str())
+            .unwrap_or("error")
+            .into();
+        checkpoint.write(&checkpoint_path)?;
+    }
     events.write(json!({"event":"end","outcome":match &result {Ok(v)=>v.as_str(),Err(_)=>"error"},"error":result.as_ref().err().map(|v|format!("{v:#}")),"elapsed_ms":start.elapsed().as_millis()}))?;
     println!(
         "{}",
-        json!({"session":session,"outcome":result.as_ref().ok()})
+        json!({"session":session,"outcome":result.as_ref().ok(),"checkpoint":checkpoint_path.exists().then_some(checkpoint_path)})
     );
     let status = result?;
     ensure!(

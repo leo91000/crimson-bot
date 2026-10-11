@@ -88,3 +88,11 @@ Pour une quantité supérieure à un, le script garde le total initial de l'obje
 `tasks/inspect_menu.rhai` inspecte les pages `misc`, `settings` et `controls` depuis leur menu parent reconnu. Il ne sélectionne aucun réglage, sauvegarde ou achat.
 
 Une exécution à blanc ne simule pas les effets : un script qui attend un mouvement réel peut se bloquer à cette étape. Les tests synthétiques vérifient séparément les transitions du moteur.
+
+## Reprise d'une exécution
+
+Un script qui définit `fn resume(memory)` obtient un checkpoint privé `runs/<session>/checkpoint.json`, écrit après le relâchement des commandes. La reprise est explicite : ajouter `--resume FILE` avec le même script, les mêmes paramètres et le même profil de touches. Une nouvelle copie des sauvegardes est vérifiée avant chaque reprise.
+
+Le moteur vérifie l'identifiant du démarrage Linux, le PID et l'heure de création du processus, l'empreinte du jeu, l'identifiant opaque du corps contrôlé et le hash du script. Il exige aussi santé et inventaire inchangés, ainsi qu'une position à moins de deux unités horizontalement et une verticalement de l'observation précédente. Une modification ou une nouvelle session de jeu invalide la reprise. Une exécution réussie, échouée ou en erreur ne se reprend pas.
+
+`route_gather.rhai` conserve les cibles exclues, les compteurs et l'inventaire initial. Son hook efface les anciens délais d'attente et la calibration de navigation ; aucune commande enregistrée n'est rejouée. Le temps actif du script continue, tandis que `--seconds` borne la nouvelle exécution. Les budgets de cibles et de segments restent ceux de l'objectif initial. Les checkpoints ne sont pas des sauvegardes du jeu et ne sont jamais restaurés dans ses fichiers.

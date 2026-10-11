@@ -432,6 +432,15 @@ impl Game {
     pub fn observe(&mut self) -> Result<World> {
         let characters = self.characters().unwrap_or_default();
         let owner = self.controlled(&characters).ok();
+        // Process-local identity, without exporting a raw memory address.
+        self.diagnostics["controlled_token"] = owner
+            .map(|address| {
+                use std::hash::{Hash, Hasher};
+                let mut hash = std::collections::hash_map::DefaultHasher::new();
+                address.hash(&mut hash);
+                format!("{:016x}", hash.finish())
+            })
+            .into();
         let stats = owner.and_then(|v| self.stats(v).ok()).unwrap_or_default();
         let position = owner
             .and_then(|v| self.position(v).ok())

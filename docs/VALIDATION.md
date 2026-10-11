@@ -26,6 +26,10 @@
 - Cause identifiée pour les directions non réactives : profil de touches incorrect. Le profil ZQSD a été vérifié sur les quatre directions, avec contrôle des axes opposés, santé et inventaire inchangés. Les réglages du jeu ont seulement été consultés.
 - Première récolte autonome de pivoine : découverte de la cible par la mémoire, trajet d'environ 50 unités en dix segments, recherche de l'interaction par la caméra, prise, puis inventaire personnel passé de zéro à une pivoine. Santé stable et monnaie inchangée. Durée d'environ 9 min 32 s ; aucune quête n'est déclarée terminée par cet essai.
 - Deuxième exécution réussie à proximité : inventaire personnel passé d'une à trois pivoines, santé stable, en environ 24 secondes. Une exécution indépendante a confirmé le gain de deux objets.
+- Troisième objectif réussi : inventaire de trois à six pivoines. Les essais suivants ont porté le total personnel à onze, mais les lots demandés n'ont pas terminé : limites de durée et perte de reconnaissance du HUD. Santé restée à 675. Ces gains partiels ne constituent pas une validation des lots complets.
+- Des scènes de plantes déjà récoltées restent dans la mémoire du jeu. L'existence d'un prefab ne suffit donc pas à confirmer qu'une cible est disponible ; l'interaction visible et le résultat d'inventaire restent nécessaires.
+- Reprise de récolte vérifiée dans le même processus : arrêt sur limite de durée après 60 secondes, puis reprise pendant 90 secondes. L'inventaire initial de onze et l'exclusion déjà acquise ont été conservés ; trois cibles indisponibles étaient finalement exclues, sans reprise de la première. Aucun gain supplémentaire sur cet essai ; les limites de sélection restent actives entre les exécutions.
+- Checkpoints testés sur données synthétiques : refus après changement de processus, démarrage système, corps contrôlé, script, objectif, profil de touches, santé, inventaire ou position hors tolérance. Remplacement atomique et fichier privé vérifiés ; une tâche sans hook de reprise ne peut pas être restaurée.
 
 ## À valider
 

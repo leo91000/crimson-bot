@@ -65,6 +65,9 @@ enum Command {
         allow_title: bool,
         #[arg(long, value_enum, default_value = "wasd")]
         movement_layout: crimson_bot::control::MovementLayout,
+        /// Resume a compatible private checkpoint; the task must define resume(memory).
+        #[arg(long)]
+        resume: Option<std::path::PathBuf>,
     },
 }
 fn main() -> Result<()> {
@@ -147,6 +150,7 @@ fn main() -> Result<()> {
             params,
             allow_title,
             movement_layout,
+            resume,
         } => {
             runtime::run(runtime::Options {
                 script,
@@ -157,6 +161,7 @@ fn main() -> Result<()> {
                 params,
                 allow_title,
                 movement_layout,
+                resume,
                 save_root: save_root.unwrap_or(backup::default_save_root()?),
                 state: state_dir.unwrap_or(runtime::default_state()?),
             })?;

@@ -6,7 +6,7 @@ use evdev::{
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, process::Command};
 
-#[derive(Clone, Copy, Debug, Default, Serialize, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum MovementLayout {
     #[default]
