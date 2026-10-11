@@ -19,6 +19,6 @@ Le profil contient seulement des RVA et des offsets, jamais les adresses privée
 
 `ItemInfoManager` : racine +0x6CF30D0, compte à +0x08, définitions à +0x58. La liste à +0x50 contient les structures de recherche, pas les définitions complètes de ce build. Une définition expose la clé u32 à +0x00 et l'objet chaîne du nom interne à +0x08. Les clés de romarin et lavande ont été recoupées avec la [base communautaire](https://github.com/NattKh/CrimsonDesertCommunityItemMapping), puis les index ont été obtenus dans le processus, sans importer cette base dans le runtime.
 
-Les tentatives de récolte doivent utiliser ces clés stables, une indication d'interaction reconnue et un résultat d'inventaire mesuré. Un petit déplacement vers une cible calculée a été validé en jeu. La découverte des plantes, les trajets dans le monde et la récolte réelle restent à implémenter ou à vérifier.
+Les tentatives de récolte doivent utiliser ces clés stables, une indication d'interaction reconnue et un résultat d'inventaire mesuré. La découverte de scènes de collecte et une récolte après un trajet d'environ 50 unités ont été validées en jeu. Les [résultats de terrain](VALIDATION.md) distinguent ces réussites des lots interrompus ; la navigation globale et la disponibilité des scènes restent à développer.
 
 L'outil [`probe-scene`](SCENE.md) prépare l'exploration des associations entre acteurs, objets de scène et chemins de prefab. Ses résultats sont des indices de recherche ; aucun de ces indices ne peut déclencher une action du runtime.

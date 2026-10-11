@@ -7,7 +7,7 @@ fn tick(ctx) {
         if m.contains("closing") && ctx.elapsed_ms-m.closing<4000 {return #{status:"running",memory:m};}
         let closes=if m.contains("closes") {m.closes} else {0};
         if closes>=6 {return #{status:"blocked",reason:"Could not leave known menus"};}
-        return #{status:"running",memory:#{closes:closes+1,closing:ctx.elapsed_ms},action:#{keys:["escape"],ui_mode:w.ui.mode,duration_ms:250}};
+        return #{status:"running",memory:#{closes:closes+1,closing:ctx.elapsed_ms},action:#{keys:["escape"],ui_mode:w.ui.mode,duration_ms:60}};
     }
     if w.ui.mode!="world" {
         if m.contains("closing") && ctx.elapsed_ms-m.closing<10000 {return #{status:"running",memory:m};}

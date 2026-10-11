@@ -156,6 +156,25 @@ fn classify(lines: &[Line]) -> String {
     {
         return "journal".into();
     }
+    // Overlays such as the recent-menu wheel keep the gameplay clock visible.
+    // Require their absence before treating the clock as a gameplay signal.
+    if text.contains("menu-rece") || text.contains("menu rece") {
+        return "unknown".into();
+    }
+    let headers = lines
+        .iter()
+        .filter(|line| line.top < 300.0)
+        .map(|line| normalize(&line.text))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if ["inventaire", "journal", "tournal", "competenc", "divers"]
+        .iter()
+        .filter(|word| headers.contains(**word))
+        .count()
+        >= 3
+    {
+        return "unknown".into();
+    }
     let clock = lines
         .iter()
         .any(|line| line.left < 500.0 && hud_clock(&line.text));
@@ -241,4 +260,21 @@ mod tests {
             assert!(!hud_clock(value));
         }
     }
+}
+#[test]
+fn recent_menu_overlay_with_visible_hud_clock_is_not_gameplay() {
+    let line = |text: &str, left: f64, top: f64| Line {
+        text: text.into(),
+        left,
+        top,
+        right: left + 150.0,
+        bottom: top + 30.0,
+        glyphs: vec![],
+    };
+    // Minimized actual OCR trace: the recent-menu overlay leaves the clock visible.
+    let lines = vec![
+        line("Menu-rece", 700.0, 300.0),
+        line("Jour 87 Mer 5:22 AM", 100.0, 950.0),
+    ];
+    assert_eq!(classify(&lines), "unknown");
 }

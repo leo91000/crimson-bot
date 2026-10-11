@@ -20,4 +20,6 @@ Empreintes du déploiement initial :
 
 Limiter les threads CPU avec `RTEN_NUM_THREADS=2` sur la Steam Machine. Les commandes sont relâchées pendant les captures et l'OCR. La mémoire est relue après cette analyse pour éviter d'envoyer des commandes à partir de coordonnées périmées.
 
-Le classement de l'interface est provisoire (`world`, `pause`, `journal`, `unknown`). Les scripts doivent exiger les indices correspondant à leur action ; ce classement n'est pas une preuve suffisante pour accepter un dialogue ou prendre un objet.
+Le classement de l'interface est provisoire (`world`, `pause`, `settings`, `title`, `journal`, `unknown`). Les scripts doivent exiger les indices correspondant à leur action ; ce classement n'est pas une preuve suffisante pour accepter un dialogue ou prendre un objet.
+
+L'horloge visible ne suffit pas lorsqu'un menu la recouvre. Le classifieur refuse le menu récent et les en-têtes de menu partiellement reconnus avant d'utiliser l'horloge comme indice de jeu. Une trace réelle réduite est couverte par un test de régression. Les fermetures de menus emploient un appui bref de 60 ms sur Échap et attendent une observation reconnue avant de continuer.

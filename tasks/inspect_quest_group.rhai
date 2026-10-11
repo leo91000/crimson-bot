@@ -1,5 +1,5 @@
 // Parameterized read-only selection in the faction journal.
-// Parameters: {"group":"visible unique word"}.
+// Parameters: {"group":"visible unique word","region":[left,top,right,bottom]} (region optional).
 fn tick(ctx) {
     let ui=ctx.world.ui;
     if ui==() || ui.mode!="journal" {return #{status:"blocked",reason:"Recognized journal required"};}
@@ -22,11 +22,13 @@ fn tick(ctx) {
         if ctx.memory.contains("return_started") && ctx.elapsed_ms-ctx.memory.return_started<5000 {
             return #{status:"running",memory:ctx.memory};
         }
-        let point=find_ui_in(ui,ctx.goal.group,0.0,0.15,1.0,0.95);
+        let region=if ctx.goal.contains("region") {ctx.goal.region} else {[0.0,0.15,1.0,0.95]};
+        if region.len()!=4 {return #{status:"blocked",reason:"Four normalized selector bounds required"};}
+        let point=find_ui_in(ui,ctx.goal.group,region[0].to_float(),region[1].to_float(),region[2].to_float(),region[3].to_float());
         if point==() {
             let returns=if ctx.memory.contains("returns") {ctx.memory.returns} else {0};
             if returns>=2 {return #{status:"blocked",reason:"Quest group missing or ambiguous after returning to parent"};}
-            return #{status:"running",memory:#{factions_started:ctx.memory.factions_started,factions_ready:true,returns:returns+1,return_started:ctx.elapsed_ms},action:#{keys:["escape"],ui_mode:"journal",duration_ms:250}};
+            return #{status:"running",memory:#{factions_started:ctx.memory.factions_started,factions_ready:true,returns:returns+1,return_started:ctx.elapsed_ms},action:#{keys:["escape"],ui_mode:"journal",duration_ms:60}};
         }
         return #{status:"running",memory:#{factions_started:ctx.memory.factions_started,factions_ready:true,selected:true,started:ctx.elapsed_ms},action:#{cursor:[point.x,point.y],keys:["click"],ui_mode:"journal",duration_ms:250}};
     }

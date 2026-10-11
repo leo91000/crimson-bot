@@ -6,6 +6,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Goal {
@@ -45,12 +46,24 @@ pub struct State {
     obstacles: Vec<Obstacle>,
     #[serde(default)]
     recoveries: u8,
+    #[serde(default)]
+    rates: BTreeMap<String, f64>,
+    #[serde(default)]
+    last_duration_ms: Option<u64>,
 }
 fn blocked(reason: &str) -> Decision {
     Decision {
         status: "blocked".into(),
         reason: reason.into(),
         memory: json!({}),
+        action: None,
+    }
+}
+fn arrived(state: State) -> Decision {
+    Decision {
+        status: "succeeded".into(),
+        reason: "Waypoint reached in measured coordinates".into(),
+        memory: serde_json::to_value(state).unwrap(),
         action: None,
     }
 }
@@ -61,7 +74,9 @@ fn unit(x: f64, z: f64) -> Option<[f64; 2]> {
     }
     Some([x / length, z / length])
 }
-fn command(state: State, key: &str, duration_ms: u64) -> Decision {
+fn command(mut state: State, key: &str, duration_ms: u64) -> Decision {
+    state.last_key = key.into();
+    state.last_duration_ms = Some(duration_ms);
     Decision {
         status: "running".into(),
         reason: "Local motion with measured feedback".into(),
@@ -102,6 +117,8 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
             stuck: 0,
             obstacles: vec![],
             recoveries: 0,
+            rates: BTreeMap::new(),
+            last_duration_ms: None,
         }
     } else {
         match serde_json::from_value::<State>(memory.clone()) {
@@ -120,6 +137,14 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
         || state.stuck >= 3
         || state.recoveries > 6
         || state.obstacles.len() > 6
+        || state.rates.iter().any(|(key, rate)| {
+            !["forward", "backward", "left", "right"].contains(&key.as_str())
+                || !rate.is_finite()
+                || !(0.00001..=0.1).contains(rate)
+        })
+        || state
+            .last_duration_ms
+            .is_some_and(|duration| !(10..=300).contains(&duration))
         || state.obstacles.iter().any(|o| {
             !o.position.valid()
                 || !["forward", "backward", "left", "right"].contains(&o.key.as_str())
@@ -138,19 +163,29 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
         return blocked("Terrain height changed beyond the trial bound");
     }
     let error = [goal.x - position.x, goal.z - position.z];
-    if error[0].hypot(error[1]) <= goal.radius {
-        return Decision {
-            status: "succeeded".into(),
-            reason: "Waypoint reached in measured coordinates".into(),
-            memory: serde_json::to_value(state).unwrap(),
-            action: None,
-        };
+    let reached = error[0].hypot(error[1]) <= goal.radius;
+    if reached && state.last_duration_ms.is_none() {
+        return arrived(state);
     }
-    if state.last_key.is_empty() {
-        state.last_key = "backward".into();
+    if state.last_key.is_empty() && state.phase == "back_probe" {
         return command(state, "backward", 150);
     }
-    let delta = unit(position.x - state.previous.x, position.z - state.previous.z);
+    let dx = position.x - state.previous.x;
+    let dz = position.z - state.previous.z;
+    let delta = unit(dx, dz);
+    if let Some(duration) = state.last_duration_ms
+        && delta.is_some()
+    {
+        let observed_rate = dx.hypot(dz) / duration as f64;
+        if !(0.00001..=0.1).contains(&observed_rate) {
+            return blocked("Observed movement rate outside calibration bounds");
+        }
+        let rate = state
+            .rates
+            .entry(state.last_key.clone())
+            .or_insert(observed_rate);
+        *rate = 0.5 * *rate + 0.5 * observed_rate;
+    }
     state.previous = position.clone();
     if state.phase == "back_probe" {
         let Some(delta) = delta else {
@@ -159,11 +194,10 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
         state.forward = Some([-delta[0], -delta[1]]);
         let forward = state.forward.unwrap();
         // A waypoint already on the measured axis needs no lateral probing.
-        if (error[0] * forward[1] - error[1] * forward[0]).abs() <= goal.radius {
+        if reached || (error[0] * forward[1] - error[1] * forward[0]).abs() <= goal.radius {
             state.phase = "travel".into();
         } else {
             state.phase = "right_probe".into();
-            state.last_key = "right".into();
             return command(state, "right", 150);
         }
     } else if state.phase == "right_probe" {
@@ -176,7 +210,7 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
         }
         state.right = Some(delta);
         state.phase = "travel".into();
-    } else if state.phase == "travel" {
+    } else if state.phase == "travel" && state.last_duration_ms.is_some() {
         if let Some(delta) = delta {
             state.stuck = 0;
             match state.last_key.as_str() {
@@ -203,8 +237,12 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
                 state.stuck = 0;
             }
         }
-    } else {
+    } else if state.phase != "travel" {
         return blocked("Unknown navigation phase");
+    }
+    state.last_duration_ms = None;
+    if reached {
+        return arrived(state);
     }
     let Some(forward) = state.forward else {
         return blocked("Forward axis unavailable");
@@ -225,16 +263,18 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
                 o.key == *key && (position.x - o.position.x).hypot(position.z - o.position.z) < 0.9
             })
         })
-        .max_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|entry| entry.0);
-    let Some(key) = key else {
+        .max_by(|a, b| a.1.total_cmp(&b.1));
+    let Some((key, projection)) = key else {
         return blocked("All calibrated directions blocked near this position");
     };
-    state.last_key = key.into();
-    let duration = if error[0].hypot(error[1]) > 1.0 {
-        300
+    let duration = if let Some(rate) = state.rates.get(key) {
+        // Aim short of the projected point; measure each direction separately.
+        (projection.max(goal.radius) * 0.85 / rate)
+            .round()
+            .clamp(10.0, 300.0) as u64
     } else {
-        150
+        // Opposite directions can have different speeds. Probe an unmeasured key gently.
+        75
     };
     command(state, key, duration)
 }
@@ -254,6 +294,7 @@ pub fn retarget(world: &World, memory: &Value, goal: &Goal) -> Decision {
     state.previous = position.clone();
     state.stuck = 0;
     state.recoveries = 0;
+    state.last_duration_ms = None;
     state
         .obstacles
         .retain(|o| (position.x - o.position.x).hypot(position.z - o.position.z) < 4.0);
@@ -397,5 +438,79 @@ mod tests {
         assert_eq!(recovery.status, "running");
         assert_eq!(recovery.action.unwrap().keys, ["backward"]);
         assert_eq!(recovery.memory["recoveries"], 1);
+    }
+    #[test]
+    fn unequal_direction_speeds_converge_without_fixed_pulse_oscillation() {
+        let mut short_commands = 0;
+        // Include diagonal and near targets, several camera headings and asymmetric speeds.
+        for heading in [0.0_f64, 0.7, 2.1] {
+            for (x, z) in [(0.4, -0.3), (-2.1, 1.7), (4.0, -3.0), (-0.31, -0.44)] {
+                let mut world = world();
+                let goal = Goal {
+                    x,
+                    z,
+                    radius: 0.15,
+                    max_distance: 8.0,
+                    max_height_change: 0.5,
+                };
+                let forward = [heading.sin(), heading.cos()];
+                let right = [heading.cos(), -heading.sin()];
+                let mut memory = json!({});
+                let mut succeeded = false;
+                for _ in 0..50 {
+                    let decision = step(&world, &memory, &goal);
+                    if decision.status == "succeeded" {
+                        succeeded = true;
+                        break;
+                    }
+                    assert_eq!(
+                        decision.status, "running",
+                        "heading {heading}, goal {x},{z}: {}",
+                        decision.reason
+                    );
+                    let action = decision.action.unwrap();
+                    let (axis, rate) = match action.keys[0].as_str() {
+                        "forward" => (forward, 0.0044),
+                        "backward" => ([-forward[0], -forward[1]], 0.0029),
+                        "right" => (right, 0.0034),
+                        "left" => ([-right[0], -right[1]], 0.0081),
+                        _ => panic!("Unexpected motion"),
+                    };
+                    if action.duration_ms < 75 {
+                        short_commands += 1;
+                    }
+                    let position = world.position.as_mut().unwrap();
+                    position.x += axis[0] * rate * action.duration_ms as f64;
+                    position.z += axis[1] * rate * action.duration_ms as f64;
+                    memory = decision.memory;
+                }
+                assert!(
+                    succeeded,
+                    "Did not converge: heading {heading}, goal {x},{z}"
+                );
+            }
+        }
+        assert!(short_commands > 0);
+    }
+    #[test]
+    fn arrival_consumes_last_motion_and_retarget_does_not_invent_a_stall() {
+        let mut world = world();
+        let goal = Goal {
+            x: 0.0,
+            z: -0.3,
+            radius: 0.1,
+            max_distance: 2.0,
+            max_height_change: 0.5,
+        };
+        let first = step(&world, &json!({}), &goal);
+        world.position.as_mut().unwrap().z = -0.3;
+        let reached = step(&world, &first.memory, &goal);
+        assert_eq!(reached.status, "succeeded");
+        assert_eq!(reached.memory["phase"], "travel");
+        assert_eq!(reached.memory["rates"]["backward"], 0.002);
+        let next = retarget(&world, &reached.memory, &Goal { z: -1.0, ..goal });
+        assert_eq!(next.status, "running");
+        assert_eq!(next.memory["stuck"], 0);
+        assert_eq!(next.memory["rates"]["backward"], 0.002);
     }
 }

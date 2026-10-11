@@ -226,7 +226,11 @@ pub fn run(options: Options) -> Result<()> {
                     if controls.is_some() {
                         ensure!(has_game_focus(world.pid)?, "Focus lost during action");
                     }
-                    thread::sleep(Duration::from_millis(20));
+                    thread::sleep(
+                        action_end
+                            .saturating_duration_since(Instant::now())
+                            .min(Duration::from_millis(20)),
+                    );
                 }
             } else {
                 thread::sleep(Duration::from_millis(100));

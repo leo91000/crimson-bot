@@ -25,7 +25,7 @@ fn tick(ctx) {
         if m.contains("closing") && ctx.elapsed_ms-m.closing<4000 {return #{status:"running",memory:m};}
         if closes>=6 {return #{status:"blocked",reason:"Could not leave known menus within retry budget"};}
         m.closes=closes+1;m.closing=ctx.elapsed_ms;
-        return #{status:"running",memory:m,action:#{keys:["escape"],ui_mode:w.ui.mode,duration_ms:250}};
+        return #{status:"running",memory:m,action:#{keys:["escape"],ui_mode:w.ui.mode,duration_ms:60}};
     }
     if w.ui.mode!="world" {
         if m.contains("closing") && ctx.elapsed_ms-m.closing<8000 {return #{status:"running",memory:m};}
