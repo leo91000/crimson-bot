@@ -1,6 +1,10 @@
 # Validation
 
-## Vérifié sur machine
+## État actuel sans OCR
+
+Le fournisseur OCR et ses scripts de menus ont été retirés à la demande de l’utilisateur. Les lectures mémoire restent disponibles. Les fournisseurs d’interface et d’interaction natives ne sont pas encore validés ; les entrées concernées sont bloquées. Les tests synthétiques couvrent le nouveau contrat, l’exigence d’une cible d’interaction explicite et le refus de tout contrôle sans mode natif.
+
+## Historique des essais avant suppression de l’OCR
 
 - Jeu local sous Proton Experimental ; processus du jeu présent.
 - Accès en lecture seule à `/proc/<pid>/mem` possible depuis le compte utilisateur.

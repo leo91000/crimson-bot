@@ -44,8 +44,6 @@ impl Script {
         engine.register_fn("bearing_xz", |ax: f64, az: f64, bx: f64, bz: f64| {
             (bx - ax).atan2(bz - az)
         });
-        engine.register_fn("find_ui", find_ui);
-        engine.register_fn("find_ui_in", find_ui_in);
         engine.register_fn("inventory_count", inventory_count);
         engine.register_fn(
             "navigation_step",
@@ -153,9 +151,6 @@ impl Script {
             });
     }
 }
-fn find_ui(ui: Dynamic, wanted: &str) -> Result<Dynamic, Box<rhai::EvalAltResult>> {
-    find_ui_in(ui, wanted, 0.0, 0.0, 1.0, 1.0)
-}
 fn navigation_call(
     world: Dynamic,
     memory: Dynamic,
@@ -179,120 +174,10 @@ fn inventory_count(
     let items = rhai::serde::from_dynamic::<Option<Vec<crate::model::Item>>>(&items)?;
     crate::inventory::count(items.as_deref(), storage, type_id).map_err(|e| e.to_string().into())
 }
-fn find_ui_in(
-    ui: Dynamic,
-    wanted: &str,
-    left: f64,
-    top: f64,
-    right: f64,
-    bottom: f64,
-) -> Result<Dynamic, Box<rhai::EvalAltResult>> {
-    let ui = rhai::serde::from_dynamic::<crate::vision::Ui>(&ui)?;
-    if ![left, top, right, bottom]
-        .iter()
-        .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
-        || right <= left
-        || bottom <= top
-    {
-        return Err("Invalid normalized UI region".into());
-    }
-    let wanted = crate::vision::normalize(wanted);
-    let wanted_chars: Vec<_> = wanted.chars().collect();
-    if wanted_chars.is_empty() {
-        return Ok(Dynamic::UNIT);
-    }
-    let mut found = vec![];
-    for word in &ui.words {
-        if crate::vision::normalize(&word.text) == wanted {
-            let point = glyph_center(&word.glyphs).unwrap_or((
-                (word.left + word.right) / 2.0,
-                (word.top + word.bottom) / 2.0,
-            ));
-            found.push(point);
-            continue;
-        }
-        let letters: Vec<_> = word
-            .glyphs
-            .iter()
-            .map(|c| {
-                crate::vision::normalize(&c.text)
-                    .chars()
-                    .next()
-                    .unwrap_or(' ')
-            })
-            .collect();
-        for (offset, window) in letters.windows(wanted_chars.len()).enumerate() {
-            if window != wanted_chars {
-                continue;
-            }
-            let span = &word.glyphs[offset..offset + wanted_chars.len()];
-            if let Some(point) = glyph_center(span) {
-                found.push(point);
-            }
-        }
-    }
-    found.retain(|&(x, y)| {
-        let x = x / ui.width as f64;
-        let y = y / ui.height as f64;
-        x >= left && x <= right && y >= top && y <= bottom
-    });
-    if found.len() != 1 {
-        return Ok(Dynamic::UNIT);
-    }
-    let (x, y) = found[0];
-    rhai::serde::to_dynamic(json!({"x":x as u32,"y":y as u32}))
-}
-fn glyph_center(glyphs: &[crate::vision::Glyph]) -> Option<(f64, f64)> {
-    let mut xs = vec![];
-    let mut ys = vec![];
-    for glyph in glyphs {
-        let x = (glyph.left + glyph.right) / 2.0;
-        let y = (glyph.top + glyph.bottom) / 2.0;
-        if !x.is_finite() || !y.is_finite() {
-            continue;
-        }
-        xs.push(x);
-        ys.push(y);
-    }
-    if xs.is_empty() {
-        return None;
-    }
-    xs.sort_by(f64::total_cmp);
-    ys.sort_by(f64::total_cmp);
-    let median = |values: &[f64]| (values[(values.len() - 1) / 2] + values[values.len() / 2]) / 2.0;
-    Some((median(&xs), median(&ys)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn trailing_ocr_whitespace_does_not_shift_selection_into_neighbor() {
-        let glyphs = vec![
-            crate::vision::Glyph {
-                text: "a".into(),
-                left: 10.0,
-                top: 0.0,
-                right: 20.0,
-                bottom: 10.0,
-            },
-            crate::vision::Glyph {
-                text: "b".into(),
-                left: 20.0,
-                top: 0.0,
-                right: 30.0,
-                bottom: 10.0,
-            },
-            crate::vision::Glyph {
-                text: "c".into(),
-                left: 30.0,
-                top: 0.0,
-                right: 500.0,
-                bottom: 10.0,
-            },
-        ];
-        assert_eq!(glyph_center(&glyphs), Some((25.0, 5.0)));
-    }
+
     fn world() -> World {
         World {
             pid: 1,
@@ -303,6 +188,7 @@ mod tests {
             inventory: None,
             resource_candidates: None,
             ui: None,
+            interactions: None,
             characters: 1,
             capabilities: vec![],
             diagnostics: json!({}),
@@ -315,57 +201,7 @@ mod tests {
         assert_eq!(script.tick(&world(), 1).unwrap().memory["n"], 2);
         assert_eq!(script.tick(&world(), 2).unwrap().status, "succeeded");
     }
-    #[test]
-    fn journal_search_scrolls_with_a_budget_and_requires_verified_detail_title() {
-        let mut w = world();
-        let line = |text: &str, left: f64| crate::vision::Line {
-            text: text.into(),
-            left,
-            top: 400.0,
-            right: left + 100.0,
-            bottom: 430.0,
-            glyphs: vec![],
-        };
-        w.ui = Some(crate::vision::Ui {
-            mode: "journal".into(),
-            page: "unknown".into(),
-            lines: vec![line("Other", 100.0)],
-            words: vec![],
-            width: 1000,
-            height: 1000,
-            processing_ms: 0,
-        });
-        let mut script = Script::compile(include_str!("../tasks/inspect_quest.rhai")).unwrap();
-        script
-            .configure(json!({"quest":"soleil","max_scrolls":2}))
-            .unwrap();
-        let scroll = script.tick(&w, 0).unwrap();
-        assert_eq!(scroll.action.unwrap().wheel_y, -3);
-        assert!(script.tick(&w, 1000).unwrap().action.is_none());
-        w.ui.as_mut().unwrap().lines = vec![line("Next", 100.0)];
-        assert_eq!(script.tick(&w, 4000).unwrap().action.unwrap().wheel_y, -3);
-        assert_eq!(script.tick(&w, 8000).unwrap().status, "blocked");
-        let mut script = Script::compile(include_str!("../tasks/inspect_quest.rhai")).unwrap();
-        script
-            .configure(json!({"quest":"soleil","max_scrolls":2}))
-            .unwrap();
-        script.tick(&w, 0).unwrap();
-        let word = line("soleil", 100.0);
-        w.ui.as_mut().unwrap().words = vec![word.clone()];
-        assert_eq!(
-            script.tick(&w, 4000).unwrap().action.unwrap().keys,
-            ["click"]
-        );
-        assert_eq!(script.tick(&w, 12000).unwrap().status, "running");
-        w.ui.as_mut().unwrap().words = vec![crate::vision::Line {
-            left: 650.0,
-            right: 750.0,
-            top: 150.0,
-            bottom: 180.0,
-            ..word
-        }];
-        assert_eq!(script.tick(&w, 13000).unwrap().status, "succeeded");
-    }
+
     #[test]
     fn navigation_accepts_integer_coordinates_from_json_parameters() {
         let mut world = world();
@@ -374,14 +210,10 @@ mod tests {
             y: 0.0,
             z: 0.0,
         });
-        world.ui = Some(crate::vision::Ui {
+        world.ui = Some(crate::model::Ui {
             mode: "world".into(),
-            page: "unknown".into(),
-            lines: vec![],
-            words: vec![],
-            width: 100,
-            height: 100,
-            processing_ms: 0,
+            width: 1000,
+            height: 1000,
         });
         let mut script =
             Script::compile("fn tick(ctx) {navigation_step(ctx.world,ctx.memory,ctx.goal)}")
@@ -405,73 +237,19 @@ mod tests {
         .unwrap();
         assert!(terminal.tick(&world(), 0).is_err());
     }
+
     #[test]
-    fn ui_selectors_preserve_geometry_through_rhai_and_reject_ambiguity() {
-        let word = crate::vision::Line {
-            text: "Factions".into(),
-            left: 10.0,
-            top: 20.0,
-            right: 30.0,
-            bottom: 40.0,
-            glyphs: vec![],
-        };
-        let mut w = world();
-        w.ui = Some(crate::vision::Ui {
-            mode: "journal".into(),
-            page: "unknown".into(),
-            lines: vec![word.clone()],
-            words: vec![word.clone()],
-            width: 1920,
-            height: 1080,
-            processing_ms: 1,
-        });
-        // A real menu contains enough nested fields to exceed the old 512 limit.
-        for _ in 0..160 {
-            w.ui.as_mut().unwrap().words.push(crate::vision::Line {
-                text: "Other".into(),
-                ..word.clone()
-            });
-        }
-        let mut script = Script::compile(
-            "fn tick(ctx) {#{status:\"succeeded\",memory:find_ui(ctx.world.ui,\"Factions\")}} ",
-        )
-        .unwrap();
-        assert_eq!(script.tick(&w, 0).unwrap().memory, json!({"x":20,"y":30}));
-        w.ui.as_mut().unwrap().words.push(word);
-        assert_eq!(script.tick(&w, 1).unwrap().memory, Value::Null);
-    }
-    #[test]
-    fn gather_requires_named_prompt_and_measured_inventory_result() {
+    fn gather_requires_native_interaction_and_measured_inventory_result() {
         let mut w = world();
         w.inventory = Some(vec![crate::model::Item {
             storage: 1,
             type_id: 1189,
             quantity: 4,
         }]);
-        let plant = crate::vision::Line {
-            text: "Lavande".into(),
-            left: 550.0,
-            top: 400.0,
-            right: 650.0,
-            bottom: 430.0,
-            glyphs: vec![],
-        };
-        let pickup = crate::vision::Line {
-            text: "Prendre".into(),
-            left: 550.0,
-            top: 435.0,
-            right: 650.0,
-            bottom: 460.0,
-            glyphs: vec![],
-        };
-        w.ui = Some(crate::vision::Ui {
+        w.ui = Some(crate::model::Ui {
             mode: "world".into(),
-            page: "unknown".into(),
-            lines: vec![plant.clone(), pickup.clone()],
-            words: vec![plant, pickup],
             width: 1000,
             height: 1000,
-            processing_ms: 1,
         });
         let mut script = Script::compile(include_str!("../tasks/gather_nearby.rhai")).unwrap();
         script.set_catalog(&std::collections::BTreeMap::from([(
@@ -483,17 +261,27 @@ mod tests {
             },
         )]));
         script
-            .configure(json!({"item_name":"Lavande","item_key":751107,"storage":1,"amount":1}))
+            .configure(json!({"item_key":751107,"storage":1,"amount":1}))
             .unwrap();
         assert!(script.tick(&w, 0).unwrap().action.is_none());
+        let unknown = script.tick(&w, 1).unwrap();
+        assert_eq!(unknown.status, "blocked");
+        assert!(unknown.action.is_none());
+        w.interactions = Some(vec![crate::model::Interaction {
+            target_id: "lavender".into(),
+            kind: crate::model::InteractionKind::Pickup,
+            item_key: Some(751107),
+            available: true,
+        }]);
         assert_eq!(
-            script.tick(&w, 1).unwrap().action.unwrap().keys,
+            script.tick(&w, 2).unwrap().action.unwrap().keys,
             ["interact"]
         );
         assert_eq!(script.tick(&w, 100).unwrap().status, "running");
         w.inventory.as_mut().unwrap()[0].quantity = 5;
         assert_eq!(script.tick(&w, 6000).unwrap().status, "succeeded");
     }
+
     #[test]
     fn all_bundled_tasks_compile_with_the_sandboxed_engine() {
         for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/tasks")).unwrap() {
@@ -511,6 +299,7 @@ mod tests {
     #[test]
     fn resource_route_checks_navigation_health_prompt_and_inventory() {
         let mut w = world();
+        w.interactions = Some(vec![]);
         w.position = Some(crate::model::Position {
             x: 0.0,
             y: 0.0,
@@ -537,14 +326,10 @@ mod tests {
                 z: -2.0,
             },
         }]);
-        w.ui = Some(crate::vision::Ui {
+        w.ui = Some(crate::model::Ui {
             mode: "world".into(),
-            page: "unknown".into(),
-            lines: vec![],
-            words: vec![],
             width: 1000,
             height: 1000,
-            processing_ms: 0,
         });
         let start = || {
             let mut script = Script::compile(include_str!("../tasks/route_gather.rhai")).unwrap();
@@ -591,23 +376,12 @@ mod tests {
         assert_eq!(hurt.status, "blocked");
         assert!(hurt.action.is_none());
         w.stats[0].current = 100.0;
-        let word = crate::vision::Line {
-            text: "Pivoine".into(),
-            left: 550.0,
-            top: 400.0,
-            right: 650.0,
-            bottom: 430.0,
-            glyphs: vec![],
-        };
-        w.ui.as_mut().unwrap().words = vec![
-            word.clone(),
-            crate::vision::Line {
-                text: "Prendre".into(),
-                top: 435.0,
-                bottom: 460.0,
-                ..word
-            },
-        ];
+        w.interactions = Some(vec![crate::model::Interaction {
+            target_id: "plant".into(),
+            kind: crate::model::InteractionKind::Pickup,
+            item_key: Some(757006),
+            available: true,
+        }]);
         let mut script = start();
         script.tick(&w, 0).unwrap();
         assert_eq!(
@@ -632,6 +406,7 @@ mod tests {
         let selected = batch.tick(&w, 6001).unwrap();
         assert_eq!(selected.memory["target"]["id"], "second-plant");
         assert_eq!(selected.memory["baseline"], 4);
+        w.interactions.as_mut().unwrap()[0].target_id = "second-plant".into();
         // A fresh engine resumes exclusions and total progress, but discards old calibration.
         let mut saved = selected.memory.clone();
         saved["nav"] = json!({"phase":"travel","forward":{"x":0,"z":1}});

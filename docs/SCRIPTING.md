@@ -1,100 +1,67 @@
 # API de scripting
 
-Chaque script Rhai définit `fn tick(ctx)`. Le moteur appelle cette fonction avec une observation fraîche ; elle renvoie une décision, jamais un appel système.
+Chaque script Rhai définit `fn tick(ctx)` et renvoie une décision à partir d'une observation mémoire fraîche. Le runtime n'utilise aucun OCR, modèle de vision ou service d'IA.
+
+## Contexte
+
+- `ctx.world` : PID, position, santé, inventaire, scènes de collecte, interface et interactions natives optionnelles.
+- `ctx.elapsed_ms` : durée active monotone de l'objectif.
+- `ctx.memory` : état JSON explicite du tick précédent, initialement vide.
+- `ctx.goal` : objet JSON fourni par `--params FILE`, limité à 64 Kio.
+
+Une information absente devient `()` dans Rhai. `world.ui == ()` signifie que le mode d'interface n'a pas été établi par le fournisseur mémoire. `world.interactions == ()` signifie que les interactions sont inconnues ; une liste vide indique une absence confirmée. Les fournisseurs d'interface et d'interaction sont encore à résoudre sur le build installé.
+
+## Décisions et commandes
+
+Statuts : `running`, `succeeded`, `blocked`, `failed`. Une décision terminale ne peut pas contenir de commande. `memory` est limitée à 64 Kio ; chaque tick dispose de 50 000 opérations et d'une profondeur d'appel limitée. Fichiers, réseau, shell et imports sont inaccessibles depuis Rhai.
 
 ```rhai
 fn tick(ctx) {
-    if !ctx.world.player_resolved {
-        return #{status: "blocked", reason: "Personnage indisponible"};
+    if ctx.world.ui == () || ctx.world.ui.mode != "world" {
+        return #{status:"blocked", reason:"Mode de jeu natif requis"};
     }
-    if ctx.elapsed_ms >= 2000 {
-        return #{status: "succeeded", reason: "Observation terminée"};
-    }
-    #{status: "running", memory: #{last_pid: ctx.world.pid}}
+    #{status:"running", memory:ctx.memory,
+      action:#{keys:["forward"], ui_mode:"world", duration_ms:100}}
 }
 ```
 
-## Entrées
+Le runtime contrôle mode natif, personnage vivant, focus et fraîcheur avant toute commande. Une action sans `ui_mode` exige aussi le mode `world`. Les touches sont relâchées entre deux actions et sur interruption ou erreur. `duration_ms` est bornée à 1–500 ms ; `mouse_x` à ±500 et `mouse_y` à ±200.
 
-- `ctx.world` : PID, horodatage, personnage résolu, position optionnelle, ressources, inventaire optionnel, capacités et diagnostics.
-- `ctx.elapsed_ms` : durée monotone de l'exécution.
-- `ctx.memory` : état JSON explicite renvoyé par le tick précédent. Initialement un objet vide.
-- `ctx.goal` : paramètres JSON de l'objectif, fournis par `--params FILE`, limités à 64 Kio.
+Une interaction exige `keys:["interact"]` et `interaction_target:"ID"`. Cet identifiant doit correspondre à une unique interaction native actuellement disponible. Aucune autre touche, caméra ou action souris ne peut être combinée avec la prise.
 
-Une valeur optionnelle absente devient `()` dans Rhai. Un inventaire absent est inconnu, pas vide. Les positions candidates doivent être validées par un essai de mouvement avant de servir à la navigation.
+Les interactions natives exposent `target_id`, `kind` (`pickup`, `talk`, `turn_in`), `item_key` optionnelle et `available`. Pour une plante, le fournisseur devra relier la cible d'interaction à l'identifiant de la scène sélectionnée. Ce contrat est testé sur observations synthétiques ; le fournisseur n'est pas encore validé en jeu.
 
-## Décisions
+Les actions de menu utilisent un mode natif vérifié. `cursor:[x,y]` est borné aux dimensions natives ; `keys:["click"]` sélectionne une entrée. `wheel_y` accepte au plus trois crans dans `journal` ou `settings`, avec un curseur et aucune autre commande. Aucun script de lecture de journal par images n'est distribué.
 
-- `status` : `running`, `succeeded`, `blocked` ou `failed`.
-- `reason` : explication exploitable pour les traces.
-- `memory` : état du prochain tick, limité à 64 Kio.
-- `action` : facultatif, uniquement pour `running`.
+## Fonctions et capacités
 
-```rhai
-#{status: "running", memory: #{phase: "measure"},
-  action: #{keys: ["forward"], duration_ms: 150}}
-```
+- `item_type_id(item_key)` résout une clé stable vers l'index du catalogue courant.
+- `inventory_count(items, storage, type_id)` somme les piles du stockage demandé.
+- `distance_xz` et `bearing_xz` utilisent les positions typées.
+- `navigation_step` et `navigation_retarget` sont décrits dans [NAVIGATION.md](NAVIGATION.md).
 
-Les actions acceptent `keys`, `mouse_x`, `mouse_y`, `duration_ms`. Durée : 1 à 500 ms ; caméra : ±500 en X et ±200 en Y. Le moteur relâche les touches entre deux actions et à l'arrêt. Les noms de commandes sont centralisés dans `control.rs` ; leur correspondance avec les réglages du jeu doit être validée sur machine.
+`gather_nearby.rhai` reçoit `item_key`, `storage`, `amount` et exige une interaction native unique. Il confirme un gain réel dans le bon inventaire.
 
-Fonctions : `distance_xz(ax, az, bx, bz)` et `bearing_xz(ax, az, bx, bz)`. L'import de modules, les fichiers, le réseau et le shell ne sont pas accessibles depuis les scripts. Chaque tick possède un budget de 50 000 opérations et une profondeur d'appel limitée.
-
-`find_ui(ctx.world.ui, "Factions")` renvoie le centre d'un mot reconnu, ou `()` si la cible est absente ou ambiguë. Les accents sont normalisés pour les sélecteurs. Le résultat est une proposition de sélection, pas une preuve de réussite.
-
-Une action d'interface peut utiliser `cursor: [x, y]`, `keys: ["click"]`, `ui_mode: "journal"`. Le moteur vérifie le mode observé, le focus et les dimensions actuelles. Le déplacement et le clic d'interface passent ensemble par XTest ; les commandes de jeu passent par uinput. Les touches et boutons sont relâchés sur erreur, arrêt demandé, SIGINT et SIGTERM.
-
-Le défilement d'un menu utilise `cursor: [x,y]`, `wheel_y: -3` pour descendre ou une valeur positive pour monter, `ui_mode: "journal"` ou `"settings"`. Il est limité à trois crans et interdit en combinaison avec touches, clic ou caméra. `inspect_quest.rhai` accepte `max_scrolls` entre zéro et seize ; il attend le nouvel écran, s'arrête sur liste inchangée et vérifie le titre du détail après sélection. `inspect_quest_group.rhai` accepte une région normalisée facultative pour distinguer des cartes contenant le même mot.
+`route_gather.rhai` ajoute `prefab_suffix`, choisit une scène proche et compose des segments bornés. Le résultat est confirmé par l'inventaire ; une scène seule ne prouve pas sa disponibilité. Les cibles consommées ou indisponibles sont exclues. Origine, santé, segments, nombre de cibles et tentatives de prise bornent l'exécution. La validation historique utilisait un fournisseur d'interface désormais retiré ; une nouvelle validation native est nécessaire.
 
 ## Exécution sur SteamOS
 
-Après compilation statique sur la machine de développement, copier le binaire et `tasks/` sur la Steam Machine :
-
 ```sh
-cargo build --release --target x86_64-unknown-linux-musl
-# Installer le target au préalable : rustup target add x86_64-unknown-linux-musl
-```
-
-Sur la Steam Machine :
-
-```sh
+cargo build --locked --release --target x86_64-unknown-linux-musl
 crimson-bot observe
-crimson-bot backup
+crimson-bot catalog Peony
+crimson-bot resources peony
 crimson-bot run tasks/observe.rhai --dry-run --seconds 5
-crimson-bot run tasks/probe_movement.rhai --seconds 5 --frames
 ```
 
-Le dernier exemple émet des commandes et exige un jeu en cours, un personnage vivant identifié et le focus du jeu. Une sauvegarde indépendante est créée et vérifiée avant la création du périphérique virtuel.
+`--movement-layout wasd|zqsd` adapte le clavier virtuel sans changer les réglages du jeu. ZQSD a été mesuré sur la machine de développement. Les commandes de déplacement restent bloquées jusqu'à la disponibilité d'un mode natif vérifié.
 
-Les sessions et sauvegardes sont privées dans `~/.local/state/crimson-bot`. Arrêt : Ctrl-C ou création du fichier `~/.local/state/crimson-bot/STOP`. Supprimer ce fichier explicitement avant une nouvelle exécution. Une seule instance par utilisateur peut contrôler le jeu, même avec des répertoires de session différents.
+`--frames` conserve uniquement des images de diagnostic ; aucune image n'entre dans la décision du script. `capture` produit aussi une image de diagnostic sans commande de jeu. `launch` demande à Steam d'ouvrir le jeu sans charger une sauvegarde. Les options de modèles et la commande de lecture d'écran ont été supprimées.
 
-`find_ui_in(ui, text, left, top, right, bottom)` limite la recherche à une région normalisée entre 0 et 1. Les coordonnées sont calculées à partir du centre médian des caractères pour éviter qu'un espace de fin de ligne ne déplace le clic vers une carte voisine. Les scripts vérifient ensuite le titre et le type de page attendu.
+Avant chaque exécution avec commandes, une copie indépendante des sauvegardes est vérifiée. Les sessions sont privées dans `~/.local/state/crimson-bot`. Arrêt : Ctrl-C ou création du fichier `STOP` dans ce répertoire. Une seule instance peut contrôler le jeu.
 
-`item_type_id(item_key)` résout une clé stable vers l'index utilisé par le processus actuel. `inventory_count(inventory, storage, type_id)` somme les piles dans un stockage explicite. Les index changent entre les builds ; une clé stable ne doit jamais être utilisée directement comme index d'inventaire.
+## Reprise
 
-`catalog Lavender` recherche dans les définitions chargées par le jeu. Le catalogue reste dans l'adaptateur Rust, hors du contexte complet envoyé à chaque tick.
+Un script doté de `fn resume(memory)` obtient `runs/<session>/checkpoint.json`, écrit après relâchement des commandes. `--resume FILE` exige le même script, objectif et profil de touches. Le moteur compare démarrage Linux, PID et création du processus, empreinte du jeu, identifiant opaque du corps, santé, inventaire et position. Une exécution réussie, échouée ou en erreur ne se reprend pas.
 
-`navigation_step(world, memory, goal)` est décrit dans [NAVIGATION.md](NAVIGATION.md). Les coordonnées de l'API sont des f64 ; les données du jeu sont lues en f32 puis converties, pour conserver une interface cohérente avec Rhai.
-
-Les coordonnées des paramètres JSON peuvent être des entiers ou des décimales. Un état de calibration incomplet ou invalide bloque la navigation sans commande.
-
-`launch` demande à Steam d'ouvrir le jeu sans charger une sauvegarde. Le script `resume_latest.rhai` exige `--allow-title` pour pouvoir choisir l'option Continuer, Reprendre ou Jouer du menu principal après sauvegarde de secours ; il ne choisit jamais Nouvelle partie, une sauvegarde arbitraire ou une résolution de conflit cloud. Sans ce drapeau, les commandes exigent toujours un personnage vivant identifié.
-
-`tasks/gather_nearby.rhai` est une capacité de récolte à proximité : elle exige le nom de la ressource et l'indication de prise dans la zone d'interaction, puis confirme une hausse d'inventaire. Elle ne fournit pas encore la navigation jusqu'à une plante. La validation de ce script est actuellement synthétique.
-
-`tasks/route_gather.rhai` compose la [découverte des scènes](SCENE.md), la navigation par segments et la confirmation d'inventaire. Paramètres : `prefab_suffix`, `item_name` localisé, clé stable `item_key`, `storage`, `amount`. Le script choisit un candidat à moins de 80 unités et trois unités d'écart d'altitude, s'arrête sur perte de santé ou d'identité et borne les segments et tentatives de prise. Une récolte de pivoine après un trajet d'environ 50 unités a été confirmée en jeu. La caméra recherche une indication de prise à proximité, avec douze essais maximum. Une reconnaissance temporairement inconnue suspend les commandes pendant quinze secondes maximum.
-
-`--movement-layout wasd|zqsd` configure les touches du périphérique virtuel, sans modifier les réglages du jeu. Le profil ZQSD est celui vérifié sur la machine de développement. `tasks/probe_bindings.rhai` contrôle les quatre directions et leurs oppositions, tout en exigeant une santé et un inventaire inchangés. Valider ce profil avant une nouvelle installation ; une direction sans mouvement peut correspondre à une mauvaise touche plutôt qu'à un obstacle.
-
-Pour une quantité supérieure à un, le script garde le total initial de l'objectif et change de cible après un gain. Les cibles consommées ou sans indication de prise après douze observations de caméra sont exclues, ainsi que leurs doublons à moins de 0,6 unité. Les commandes de navigation sont recalibrées après un changement de cible ; la sélection est limitée à dix cibles. Un gain supérieur à la quantité demandée reste une réussite : le script mesure ce que le jeu a réellement donné.
-
-`tasks/inspect_menu.rhai` inspecte les pages `misc`, `settings` et `controls` depuis leur menu parent reconnu. Il ne sélectionne aucun réglage, sauvegarde ou achat.
-
-Une exécution à blanc ne simule pas les effets : un script qui attend un mouvement réel peut se bloquer à cette étape. Les tests synthétiques vérifient séparément les transitions du moteur.
-
-## Reprise d'une exécution
-
-Un script qui définit `fn resume(memory)` obtient un checkpoint privé `runs/<session>/checkpoint.json`, écrit après le relâchement des commandes. La reprise est explicite : ajouter `--resume FILE` avec le même script, les mêmes paramètres et le même profil de touches. Une nouvelle copie des sauvegardes est vérifiée avant chaque reprise.
-
-Le moteur vérifie l'identifiant du démarrage Linux, le PID et l'heure de création du processus, l'empreinte du jeu, l'identifiant opaque du corps contrôlé et le hash du script. Il exige aussi santé et inventaire inchangés, ainsi qu'une position à moins de deux unités horizontalement et une verticalement de l'observation précédente. Une modification ou une nouvelle session de jeu invalide la reprise. Une exécution réussie, échouée ou en erreur ne se reprend pas.
-
-`route_gather.rhai` conserve les cibles exclues, les compteurs et l'inventaire initial. Son hook efface les anciens délais d'attente et la calibration de navigation ; aucune commande enregistrée n'est rejouée. Le temps actif du script continue, tandis que `--seconds` borne la nouvelle exécution. Les budgets de cibles et de segments restent ceux de l'objectif initial. Les checkpoints ne sont pas des sauvegardes du jeu et ne sont jamais restaurés dans ses fichiers.
+La récolte conserve les exclusions et les compteurs, puis efface sa calibration de déplacement. Aucune ancienne commande n'est rejouée ; les budgets continuent depuis l'objectif initial. Une nouvelle copie des sauvegardes précède chaque reprise. Le checkpoint est un état du script, jamais une sauvegarde restaurée dans le jeu.

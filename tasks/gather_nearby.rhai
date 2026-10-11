@@ -1,9 +1,9 @@
 // Leaf capability: collect an identified resource already within interaction range.
-// It does not navigate or choose an item. Parameters: item_name, stable item_key,
+// It does not navigate or choose an item. Parameters: stable item_key,
 // storage (typically 1), amount. Completion requires an observed inventory gain.
 fn tick(ctx) {
     let w=ctx.world;let goal=ctx.goal;let m=ctx.memory;
-    if !goal.contains("item_name") || !goal.contains("item_key") || !goal.contains("storage") || !goal.contains("amount") {
+    if !goal.contains("item_key") || !goal.contains("storage") || !goal.contains("amount") {
         return #{status:"blocked",reason:"Explicit resource and inventory parameters required"};
     }
     if goal.amount<1 || goal.amount>10 {return #{status:"blocked",reason:"Gather amount outside bounded trial"};}
@@ -19,9 +19,12 @@ fn tick(ctx) {
     }
     if m.contains("pending") && ctx.elapsed_ms-m.pending<5000 {return #{status:"running",memory:m};}
     if m.attempts>=3 {return #{status:"blocked",reason:"No confirmed inventory result within retry budget"};}
-    let label=find_ui_in(w.ui,goal.item_name,0.3,0.2,0.8,0.9);
-    let pickup=find_ui_in(w.ui,"Prendre",0.3,0.2,0.8,0.9);
-    if label==() || pickup==() {return #{status:"blocked",reason:"Named resource and pickup prompt not verified"};}
+    if w.interactions==() {return #{status:"blocked",reason:"Native interaction observations required",memory:m};}
+    let candidates=0;let target=();
+    for interaction in w.interactions {
+        if interaction.available && interaction.kind=="pickup" && interaction.item_key==goal.item_key {candidates+=1;target=interaction.target_id;}
+    }
+    if candidates!=1 {return #{status:"blocked",reason:"Native pickup target absent or ambiguous",memory:m};}
     #{status:"running",memory:#{baseline:m.baseline,attempts:m.attempts+1,pending:ctx.elapsed_ms},
-      action:#{keys:["interact"],ui_mode:"world",duration_ms:250}}
+      action:#{keys:["interact"],interaction_target:target,ui_mode:"world",duration_ms:250}}
 }

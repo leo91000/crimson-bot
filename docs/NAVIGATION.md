@@ -1,5 +1,7 @@
 # Navigation locale
 
+Le fournisseur d’interface natif est encore à résoudre. Les essais de terrain ci-dessous précèdent la suppression de l’OCR ; le contrôleur pur reste testé sur observations synthétiques.
+
 `navigation_step(world, memory, goal)` produit une décision de déplacement à partir de coordonnées observées. `tasks/navigate_local.rhai` l'expose directement.
 
 Paramètres : `x`, `z`, `radius` (0,25 par défaut), `max_distance` (5 unités), `max_height_change` (0,5 unité).

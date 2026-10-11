@@ -209,6 +209,7 @@ mod tests {
                 inventory: Some(vec![]),
                 resource_candidates: None,
                 ui: None,
+                interactions: None,
                 characters: 1,
                 capabilities: vec![],
                 diagnostics: json!({}),

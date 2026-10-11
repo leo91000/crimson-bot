@@ -2,7 +2,7 @@
 
 Un moteur de scripting local pour automatiser les tâches de Crimson Desert sur SteamOS/Proton. Rust porte les interfaces système et les contrôles ; Rhai décrit les objectifs et les politiques. Aucun service d'IA n'est nécessaire pendant l'exécution.
 
-**En développement :** une première récolte autonome après un trajet d'environ 50 unités est validée. La navigation dans le monde complexe, le combat et les quêtes complètes restent à développer et vérifier. Les résultats et limites sont consignés dans [VALIDATION.md](docs/VALIDATION.md).
+**En développement :** position, santé, inventaire et scènes sont lus dans la mémoire. La perception est exclusivement native, sans OCR. Les interfaces et interactions natives restent à intégrer avant de valider de nouveau la récolte. Navigation globale, combat et quêtes complètes restent à développer. Voir [VALIDATION.md](docs/VALIDATION.md).
 
 ## Objectif
 
@@ -13,6 +13,7 @@ La première cible est une quête secondaire de récolte à faible conséquence,
 ## Principes
 
 - Lire l'état du jeu sans modifier sa mémoire, ses règles ou ses sauvegardes.
+- Utiliser les données natives pour la perception, sans OCR ni modèle de vision.
 - Agir par les commandes ordinaires, avec un clavier/souris virtuel Linux.
 - Séparer l'adaptateur du jeu, les actions, la navigation, le combat et les objectifs.
 - Vérifier les résultats ; une touche envoyée ne prouve pas une action réussie.
@@ -26,7 +27,7 @@ Les [premières quêtes candidates](docs/QUESTS.md) distinguent les informations
 
 Le [guide de scripting](docs/SCRIPTING.md) détaille les scripts Rhai, les commandes et l'installation sur SteamOS.
 
-Le projet fournit aussi une bibliothèque Rust (`crimson_bot`) pour développer les adaptateurs et capacités avec des observations synthétiques. La lecture de l'interface en local est décrite dans [VISION.md](docs/VISION.md).
+Le projet fournit aussi une bibliothèque Rust (`crimson_bot`) pour développer les adaptateurs et capacités avec des observations synthétiques. La [perception native](docs/PERCEPTION.md) exclut explicitement l’OCR et décrit les fournisseurs disponibles ou en cours de résolution.
 
 ## Développement
 

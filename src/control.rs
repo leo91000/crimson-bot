@@ -38,6 +38,8 @@ pub struct Action {
     pub mouse_y: i32,
     #[serde(default)]
     pub wheel_y: i32,
+    #[serde(default)]
+    pub interaction_target: Option<String>,
     #[serde(default = "default_duration")]
     pub duration_ms: u64,
 }
@@ -81,6 +83,24 @@ impl Action {
         );
         for binding in &self.keys {
             key(binding)?;
+        }
+        if self.keys.iter().any(|key| key == "interact") {
+            ensure!(
+                self.interaction_target
+                    .as_ref()
+                    .is_some_and(|id| !id.is_empty() && id.len() <= 128)
+                    && self.keys == ["interact"]
+                    && self.cursor.is_none()
+                    && self.mouse_x == 0
+                    && self.mouse_y == 0
+                    && self.wheel_y == 0,
+                "Interaction requires one explicit native target and no other inputs"
+            );
+        } else {
+            ensure!(
+                self.interaction_target.is_none(),
+                "Target supplied without interaction input"
+            );
         }
         if let Some(mode) = self.ui_mode.as_deref() {
             ensure!(

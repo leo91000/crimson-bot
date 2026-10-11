@@ -27,7 +27,6 @@ pub struct Options {
     pub seconds: u64,
     pub dry_run: bool,
     pub frames: bool,
-    pub models: Option<PathBuf>,
     pub params: Option<PathBuf>,
     pub allow_title: bool,
     pub movement_layout: crate::control::MovementLayout,
@@ -61,11 +60,6 @@ pub fn run(options: Options) -> Result<()> {
         json!({})
     };
     script.configure(goal.clone())?;
-    let vision = options
-        .models
-        .as_ref()
-        .map(|path| crate::vision::Vision::load(path))
-        .transpose()?;
     fs::create_dir_all(&options.state)?;
     fs::set_permissions(&options.state, fs::Permissions::from_mode(0o700))?;
     let control_root = default_state()?;
@@ -146,15 +140,7 @@ pub fn run(options: Options) -> Result<()> {
             && !stop.load(Ordering::SeqCst)
             && !options.state.join("STOP").exists()
         {
-            let ui = if let Some(vision) = &vision {
-                let frame = capture::capture(&session)?;
-                events.write(json!({"event":"frame","path":frame}))?;
-                Some(vision.read(&frame)?)
-            } else {
-                None
-            };
-            let mut world = game.observe()?;
-            world.ui = ui;
+            let world = game.observe()?;
             // Perception may take seconds; recheck cancellation before any decision or input.
             if Instant::now() >= deadline
                 || stop.load(Ordering::SeqCst)
@@ -179,36 +165,7 @@ pub fn run(options: Options) -> Result<()> {
                     "Observation stale before action"
                 );
                 if let Some(control) = controls.as_mut() {
-                    if let Some(expected) = &action.ui_mode {
-                        let ui = world
-                            .ui
-                            .as_ref()
-                            .context("UI action requires current perception")?;
-                        ensure!(&ui.mode == expected, "UI mode changed before action");
-                        if let Some([x, y]) = action.cursor {
-                            ensure!(
-                                x < ui.width && y < ui.height,
-                                "Cursor outside current frame"
-                            );
-                        }
-                    }
-                    let title_action = options.allow_title
-                        && action.cursor.is_some()
-                        && action.ui_mode.as_deref() == Some("title")
-                        && world.ui.as_ref().is_some_and(|ui| ui.mode == "title")
-                        && action.keys.iter().all(|v| v == "click");
-                    ensure!(
-                        title_action || world.player_resolved,
-                        "Cannot act without a validated controlled body"
-                    );
-                    ensure!(
-                        title_action
-                            || world
-                                .stats
-                                .iter()
-                                .any(|stat| stat.kind == 0 && stat.current > 0.0),
-                        "Cannot act without living player health"
-                    );
+                    authorize_native_action(&world, &action, options.allow_title)?;
                     ensure!(
                         has_game_focus(world.pid)?,
                         "Game lost focus; controls stopped"
@@ -290,4 +247,126 @@ pub fn run(options: Options) -> Result<()> {
 pub fn default_state() -> Result<PathBuf> {
     let home = std::env::var_os("HOME").context("HOME missing")?;
     Ok(Path::new(&home).join(".local/state/crimson-bot"))
+}
+
+fn authorize_native_action(
+    world: &crate::model::World,
+    action: &crate::control::Action,
+    allow_title: bool,
+) -> Result<()> {
+    action.validate()?;
+    let expected = action.ui_mode.as_deref().unwrap_or("world");
+    let ui = world
+        .ui
+        .as_ref()
+        .context("Controls require validated native interface state")?;
+    ensure!(
+        ui.mode == expected,
+        "Native interface state does not authorize this action"
+    );
+    if let Some([x, y]) = action.cursor {
+        ensure!(
+            x < ui.width && y < ui.height,
+            "Cursor outside native interface bounds"
+        );
+    }
+    let title = allow_title
+        && action.cursor.is_some()
+        && expected == "title"
+        && action.keys.iter().all(|k| k == "click");
+    ensure!(
+        title || world.player_resolved,
+        "Cannot act without a validated controlled body"
+    );
+    ensure!(
+        title
+            || world
+                .stats
+                .iter()
+                .any(|s| s.kind == 0 && s.current.is_finite() && s.current > 0.0),
+        "Cannot act without living player health"
+    );
+    if let Some(target) = &action.interaction_target {
+        let interactions = world
+            .interactions
+            .as_ref()
+            .context("Native interaction state unavailable")?;
+        ensure!(
+            interactions
+                .iter()
+                .filter(|i| i.available && &i.target_id == target)
+                .count()
+                == 1,
+            "Native interaction target unavailable or ambiguous"
+        );
+    }
+    Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        control::Action,
+        model::{Interaction, InteractionKind, Stat, Ui, World},
+    };
+    #[test]
+    fn all_inputs_require_native_interface_and_interactions_require_current_target() {
+        let mut w = World {
+            pid: 1,
+            observed_at_ms: 0,
+            player_resolved: true,
+            position: None,
+            stats: vec![Stat {
+                kind: 0,
+                current: 100.0,
+                maximum: None,
+            }],
+            inventory: Some(vec![]),
+            resource_candidates: None,
+            ui: None,
+            interactions: None,
+            characters: 1,
+            capabilities: vec![],
+            diagnostics: json!({}),
+        };
+        let motion = Action {
+            keys: vec!["forward".into()],
+            duration_ms: 100,
+            ..Default::default()
+        };
+        assert!(authorize_native_action(&w, &motion, false).is_err());
+        w.ui = Some(Ui {
+            mode: "journal".into(),
+            width: 1920,
+            height: 1080,
+        });
+        assert!(authorize_native_action(&w, &motion, false).is_err());
+        let close = Action {
+            keys: vec!["escape".into()],
+            ui_mode: Some("journal".into()),
+            duration_ms: 60,
+            ..Default::default()
+        };
+        authorize_native_action(&w, &close, false).unwrap();
+        w.ui.as_mut().unwrap().mode = "world".into();
+        authorize_native_action(&w, &motion, false).unwrap();
+        let pickup = Action {
+            keys: vec!["interact".into()],
+            interaction_target: Some("plant".into()),
+            duration_ms: 100,
+            ..Default::default()
+        };
+        assert!(authorize_native_action(&w, &pickup, false).is_err());
+        w.interactions = Some(vec![Interaction {
+            target_id: "other".into(),
+            kind: InteractionKind::Pickup,
+            item_key: Some(757006),
+            available: true,
+        }]);
+        assert!(authorize_native_action(&w, &pickup, false).is_err());
+        w.interactions.as_mut().unwrap()[0].target_id = "plant".into();
+        authorize_native_action(&w, &pickup, false).unwrap();
+        w.interactions.as_mut().unwrap()[0].available = false;
+        assert!(authorize_native_action(&w, &pickup, false).is_err());
+    }
 }

@@ -14,4 +14,3 @@ pub mod runtime;
 pub mod scene;
 pub mod script;
 pub mod transform;
-pub mod vision;

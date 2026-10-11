@@ -1,5 +1,5 @@
 // Bounded collection trial composed from live scene candidates, navigation and inventory.
-// Parameters: prefab_suffix, item_name (localized), item_key, storage, amount.
+// Parameters: prefab_suffix, item_key, storage, amount.
 // No quest, spending, attack or irreversible dialogue action is performed.
 fn resume(memory) {
     // No old key press or camera-dependent calibration is replayed.
@@ -16,7 +16,7 @@ fn retire_target(memory) {
 fn tick(ctx) {
     let w=ctx.world;let m=ctx.memory;let g=ctx.goal;
     if w.ui==() {return #{status:"blocked",reason:"Local interface observations required"};}
-    if !g.contains("prefab_suffix") || !g.contains("item_name") || !g.contains("item_key") || !g.contains("storage") || !g.contains("amount") {
+    if !g.contains("prefab_suffix") || !g.contains("item_key") || !g.contains("storage") || !g.contains("amount") {
         return #{status:"blocked",reason:"Explicit resource goal required"};
     }
     if g.amount<1 || g.amount>10 {return #{status:"blocked",reason:"Invalid collection amount"};}
@@ -79,12 +79,15 @@ fn tick(ctx) {
     let target=();for c in w.resource_candidates {if c.id==m.target.id && c.prefab==m.target.prefab {target=c;}}
     if target==() {return #{status:"blocked",reason:"Selected resource disappeared or changed identity",memory:m};}
     let distance=distance_xz(target.position.x,target.position.z,w.position.x,w.position.z);
-    let label=find_ui_in(w.ui,g.item_name,0.3,0.2,0.8,0.9);
-    let pickup=find_ui_in(w.ui,"Prendre",0.3,0.2,0.8,0.9);
-    if label!=() && pickup!=() && distance<=2.5 {
+    if w.interactions==() {return #{status:"blocked",reason:"Native interaction state unavailable",memory:m};}
+    let pickup=0;
+    for interaction in w.interactions {
+        if interaction.available && interaction.target_id==m.target.id && interaction.kind=="pickup" && interaction.item_key==g.item_key {pickup+=1;}
+    }
+    if pickup==1 && distance<=2.5 {
         if m.attempts>=3 {return #{status:"blocked",reason:"Pickup attempts did not produce an inventory result",memory:m};}
         m.attempts+=1;m.pending=ctx.elapsed_ms;
-        return #{status:"running",memory:m,action:#{keys:["interact"],ui_mode:"world",duration_ms:250}};
+        return #{status:"running",memory:m,action:#{keys:["interact"],interaction_target:m.target.id,ui_mode:"world",duration_ms:250}};
     }
     if distance<=1.2 {
         let looks=if m.contains("looks") {m.looks} else {0};

@@ -502,6 +502,7 @@ impl Game {
             inventory,
             resource_candidates,
             ui: None,
+            interactions: None,
             characters: characters.len(),
             capabilities,
             diagnostics: self.diagnostics.clone(),

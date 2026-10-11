@@ -9,6 +9,7 @@ Les scripts doivent pouvoir grandir : récolte, déplacements, interactions, com
 ## Contraintes
 
 - Runtime entièrement local. Pas d'appel à une IA payante.
+- Aucun OCR : les quêtes, personnages, interfaces et interactions doivent être observés dans les données natives du jeu.
 - Reverse engineering autorisé pour lire l'état du jeu. Pas de triche : aucune écriture mémoire, téléportation ou validation artificielle de quête.
 - Le son est coupé pendant le travail sur la machine.
 - Essais avec sauvegardes indépendantes, tentatives bornées et dépenses encadrées.

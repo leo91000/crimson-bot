@@ -2,7 +2,7 @@
 
 ## Couches
 
-1. **Adaptateur de jeu** : accès Linux en lecture seule à `/proc/<pid>/mem`, résolution de signatures du module PE, validation des pointeurs et production d'un état typé. Aucune adresse absolue n'est conservée d'une session à l'autre.
+1. **Adaptateur de jeu** : perception exclusivement par les données natives, sans OCR ni analyse d’images ; accès Linux en lecture seule à `/proc/<pid>/mem`, résolution de signatures du module PE, validation des pointeurs et production d'un état typé. Aucune adresse absolue n'est conservée d'une session à l'autre.
 2. **Commandes** : périphérique virtuel via `/dev/uinput`, touches et mouvement relatif. Une commande possède une durée maximale. Toute interruption relâche les commandes.
 3. **Capacités** : navigation, interaction, récolte et combat. Chaque capacité observe son résultat et distingue réussite, échec et information insuffisante.
 4. **Objectifs Rhai** : composition des capacités ; état du script explicite entre les ticks et conditions de réussite. Les appels système restent dans le moteur Rust. Les scripts disposant d'un hook `resume(memory)` peuvent reprendre un checkpoint compatible dans le même processus de jeu ; la récolte conserve les exclusions et réinitialise sa calibration.

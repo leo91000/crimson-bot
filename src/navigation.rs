@@ -317,14 +317,11 @@ mod tests {
             stats: vec![],
             inventory: None,
             resource_candidates: None,
-            ui: Some(crate::vision::Ui {
+            interactions: None,
+            ui: Some(crate::model::Ui {
                 mode: "world".into(),
-                page: "unknown".into(),
-                lines: vec![],
-                words: vec![],
                 width: 100,
                 height: 100,
-                processing_ms: 0,
             }),
             characters: 1,
             capabilities: vec![],
