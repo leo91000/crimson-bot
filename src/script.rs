@@ -316,6 +316,57 @@ mod tests {
         assert_eq!(script.tick(&world(), 2).unwrap().status, "succeeded");
     }
     #[test]
+    fn journal_search_scrolls_with_a_budget_and_requires_verified_detail_title() {
+        let mut w = world();
+        let line = |text: &str, left: f64| crate::vision::Line {
+            text: text.into(),
+            left,
+            top: 400.0,
+            right: left + 100.0,
+            bottom: 430.0,
+            glyphs: vec![],
+        };
+        w.ui = Some(crate::vision::Ui {
+            mode: "journal".into(),
+            page: "unknown".into(),
+            lines: vec![line("Other", 100.0)],
+            words: vec![],
+            width: 1000,
+            height: 1000,
+            processing_ms: 0,
+        });
+        let mut script = Script::compile(include_str!("../tasks/inspect_quest.rhai")).unwrap();
+        script
+            .configure(json!({"quest":"soleil","max_scrolls":2}))
+            .unwrap();
+        let scroll = script.tick(&w, 0).unwrap();
+        assert_eq!(scroll.action.unwrap().wheel_y, -3);
+        assert!(script.tick(&w, 1000).unwrap().action.is_none());
+        w.ui.as_mut().unwrap().lines = vec![line("Next", 100.0)];
+        assert_eq!(script.tick(&w, 4000).unwrap().action.unwrap().wheel_y, -3);
+        assert_eq!(script.tick(&w, 8000).unwrap().status, "blocked");
+        let mut script = Script::compile(include_str!("../tasks/inspect_quest.rhai")).unwrap();
+        script
+            .configure(json!({"quest":"soleil","max_scrolls":2}))
+            .unwrap();
+        script.tick(&w, 0).unwrap();
+        let word = line("soleil", 100.0);
+        w.ui.as_mut().unwrap().words = vec![word.clone()];
+        assert_eq!(
+            script.tick(&w, 4000).unwrap().action.unwrap().keys,
+            ["click"]
+        );
+        assert_eq!(script.tick(&w, 12000).unwrap().status, "running");
+        w.ui.as_mut().unwrap().words = vec![crate::vision::Line {
+            left: 650.0,
+            right: 750.0,
+            top: 150.0,
+            bottom: 180.0,
+            ..word
+        }];
+        assert_eq!(script.tick(&w, 13000).unwrap().status, "succeeded");
+    }
+    #[test]
     fn navigation_accepts_integer_coordinates_from_json_parameters() {
         let mut world = world();
         world.position = Some(crate::model::Position {

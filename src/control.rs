@@ -36,6 +36,8 @@ pub struct Action {
     pub mouse_x: i32,
     #[serde(default)]
     pub mouse_y: i32,
+    #[serde(default)]
+    pub wheel_y: i32,
     #[serde(default = "default_duration")]
     pub duration_ms: u64,
 }
@@ -84,6 +86,17 @@ impl Action {
             ensure!(
                 ["world", "journal", "pause", "settings", "title"].contains(&mode),
                 "Unsupported action interface state"
+            );
+        }
+        if self.wheel_y != 0 {
+            ensure!(
+                self.wheel_y.unsigned_abs() <= 3
+                    && self.cursor.is_some()
+                    && matches!(self.ui_mode.as_deref(), Some("journal" | "settings"))
+                    && self.keys.is_empty()
+                    && self.mouse_x == 0
+                    && self.mouse_y == 0,
+                "Scroll requires a supported menu cursor, no other inputs and at most three notches"
             );
         }
         if let Some([x, y]) = self.cursor {
@@ -159,6 +172,20 @@ impl Controls {
                 .env("DISPLAY", ":1")
                 .status()?;
             ensure!(status.success(), "Cursor move failed");
+            if action.wheel_y != 0 {
+                let status = Command::new("xdotool")
+                    .args([
+                        "click",
+                        "--repeat",
+                        &action.wheel_y.unsigned_abs().to_string(),
+                        "--delay",
+                        "40",
+                        if action.wheel_y > 0 { "4" } else { "5" },
+                    ])
+                    .env("DISPLAY", ":1")
+                    .status()?;
+                ensure!(status.success(), "Menu scroll failed");
+            }
             if action.keys.iter().any(|v| v == "click") {
                 self.held_x_mouse = true;
                 let status = Command::new("xdotool")
@@ -264,6 +291,59 @@ mod tests {
             }
             .validate()
             .is_ok()
+        );
+    }
+    #[test]
+    fn menu_scroll_rejects_gameplay_and_mixed_inputs_without_overflow() {
+        let valid = Action {
+            cursor: Some([100, 200]),
+            ui_mode: Some("journal".into()),
+            wheel_y: -3,
+            duration_ms: 100,
+            ..Default::default()
+        };
+        valid.validate().unwrap();
+        for value in [4, -4, i32::MIN] {
+            assert!(
+                Action {
+                    wheel_y: value,
+                    ..valid.clone()
+                }
+                .validate()
+                .is_err()
+            );
+        }
+        assert!(
+            Action {
+                ui_mode: Some("world".into()),
+                ..valid.clone()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Action {
+                keys: vec!["click".into()],
+                ..valid.clone()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Action {
+                cursor: None,
+                ..valid.clone()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Action {
+                mouse_x: 1,
+                ..valid
+            }
+            .validate()
+            .is_err()
         );
     }
 }

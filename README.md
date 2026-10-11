@@ -22,6 +22,8 @@ La première cible est une quête secondaire de récolte à faible conséquence,
 
 Voir le [cahier des charges](docs/REQUIREMENTS.md), l'[architecture](docs/ARCHITECTURE.md) et les [sources du reverse engineering](docs/RESEARCH.md).
 
+Les [premières quêtes candidates](docs/QUESTS.md) distinguent les informations externes des étapes réellement vérifiées dans la partie.
+
 Le [guide de scripting](docs/SCRIPTING.md) détaille les scripts Rhai, les commandes et l'installation sur SteamOS.
 
 Le projet fournit aussi une bibliothèque Rust (`crimson_bot`) pour développer les adaptateurs et capacités avec des observations synthétiques. La lecture de l'interface en local est décrite dans [VISION.md](docs/VISION.md).

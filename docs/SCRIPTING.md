@@ -43,6 +43,8 @@ Fonctions : `distance_xz(ax, az, bx, bz)` et `bearing_xz(ax, az, bx, bz)`. L'imp
 
 Une action d'interface peut utiliser `cursor: [x, y]`, `keys: ["click"]`, `ui_mode: "journal"`. Le moteur vérifie le mode observé, le focus et les dimensions actuelles. Le déplacement et le clic d'interface passent ensemble par XTest ; les commandes de jeu passent par uinput. Les touches et boutons sont relâchés sur erreur, arrêt demandé, SIGINT et SIGTERM.
 
+Le défilement d'un menu utilise `cursor: [x,y]`, `wheel_y: -3` pour descendre ou une valeur positive pour monter, `ui_mode: "journal"` ou `"settings"`. Il est limité à trois crans et interdit en combinaison avec touches, clic ou caméra. `inspect_quest.rhai` accepte `max_scrolls` entre zéro et seize ; il attend le nouvel écran, s'arrête sur liste inchangée et vérifie le titre du détail après sélection. `inspect_quest_group.rhai` accepte une région normalisée facultative pour distinguer des cartes contenant le même mot.
+
 ## Exécution sur SteamOS
 
 Après compilation statique sur la machine de développement, copier le binaire et `tasks/` sur la Steam Machine :
