@@ -2,7 +2,7 @@
 
 Un moteur de scripting local pour automatiser les tâches de Crimson Desert sur SteamOS/Proton. Rust porte les interfaces système et les contrôles ; Rhai décrit les objectifs et les politiques. Aucun service d'IA n'est nécessaire pendant l'exécution.
 
-**En développement :** la récolte, la navigation dans le monde et le combat ne sont pas encore validés. Les étapes réellement vérifiées sont consignées dans [VALIDATION.md](docs/VALIDATION.md).
+**En développement :** une première récolte autonome après un trajet d'environ 50 unités est validée. La navigation dans le monde complexe, le combat et les quêtes complètes restent à développer et vérifier. Les résultats et limites sont consignés dans [VALIDATION.md](docs/VALIDATION.md).
 
 ## Objectif
 

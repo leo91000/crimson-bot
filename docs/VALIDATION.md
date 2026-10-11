@@ -23,11 +23,14 @@
 - Nouvelle lecture de la transformation validée avec secteurs cohérente avec la position observée. Changements de secteur et parent testés sur données synthétiques.
 - Lecture de scènes de collecte chargées : prefab et transformation sectorisée, avec revalidation du type. Les buissons de pivoine proches sont maintenant accessibles à l'API des scripts.
 - Premier trajet de récolte arrêté sur commandes latérales sans mouvement, sans perte de santé. Ce résultat est un blocage constaté, pas une récolte réussie.
+- Cause identifiée pour les directions non réactives : profil de touches incorrect. Le profil ZQSD a été vérifié sur les quatre directions, avec contrôle des axes opposés, santé et inventaire inchangés. Les réglages du jeu ont seulement été consultés.
+- Première récolte autonome de pivoine : découverte de la cible par la mémoire, trajet d'environ 50 unités en dix segments, recherche de l'interaction par la caméra, prise, puis inventaire personnel passé de zéro à une pivoine. Santé stable et monnaie inchangée. Durée d'environ 9 min 32 s ; aucune quête n'est déclarée terminée par cet essai.
+- Deuxième exécution réussie à proximité : inventaire personnel passé d'une à trois pivoines, santé stable, en environ 24 secondes. Une exécution indépendante a confirmé le gain de deux objets.
 
 ## À valider
 
 - Sémantique des ressources autres que la santé, maxima et calibration de la caméra.
-- Reconnaissance de l'interface au-delà des écrans testés, identification des plantes et récolte réelle confirmée.
+- Reconnaissance de l'interface au-delà des écrans testés, autres ressources et répétabilité de la récolte sur plusieurs cibles.
 - Navigation sur longs trajets, obstacles, falaises, montures, combat et quête complète.
 
 Les signatures publiques anciennes ne correspondent pas à ce build. Le profil actuel vient d'une exploration structurelle et d'une vérification en jeu ; il ne doit pas être appliqué à une autre empreinte.

@@ -30,6 +30,7 @@ pub struct Options {
     pub models: Option<PathBuf>,
     pub params: Option<PathBuf>,
     pub allow_title: bool,
+    pub movement_layout: crate::control::MovementLayout,
 }
 struct Events {
     file: File,
@@ -90,7 +91,7 @@ pub fn run(options: Options) -> Result<()> {
     let mut game = Game::attach()?;
     script.set_catalog(&game.catalog);
     let initial = game.observe()?;
-    events.write(json!({"event":"start","dry_run":options.dry_run,"script":options.script,"backup":backup,"world":initial}))?;
+    events.write(json!({"event":"start","dry_run":options.dry_run,"script":options.script,"movement_layout":options.movement_layout,"backup":backup,"world":initial}))?;
     let stop = Arc::new(AtomicBool::new(false));
     let handler = stop.clone();
     ctrlc::set_handler(move || {
@@ -99,7 +100,7 @@ pub fn run(options: Options) -> Result<()> {
     let mut controls = if options.dry_run {
         None
     } else {
-        Some(Controls::create()?)
+        Some(Controls::create_with_layout(options.movement_layout)?)
     };
     // Allow gamescope to enumerate the newly created device.
     if controls.is_some() {

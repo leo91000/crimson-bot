@@ -63,6 +63,8 @@ enum Command {
         params: Option<std::path::PathBuf>,
         #[arg(long)]
         allow_title: bool,
+        #[arg(long, value_enum, default_value = "wasd")]
+        movement_layout: crimson_bot::control::MovementLayout,
     },
 }
 fn main() -> Result<()> {
@@ -144,6 +146,7 @@ fn main() -> Result<()> {
             models,
             params,
             allow_title,
+            movement_layout,
         } => {
             runtime::run(runtime::Options {
                 script,
@@ -153,6 +156,7 @@ fn main() -> Result<()> {
                 models,
                 params,
                 allow_title,
+                movement_layout,
                 save_root: save_root.unwrap_or(backup::default_save_root()?),
                 state: state_dir.unwrap_or(runtime::default_state()?),
             })?;

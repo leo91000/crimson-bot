@@ -61,14 +61,14 @@ fn unit(x: f64, z: f64) -> Option<[f64; 2]> {
     }
     Some([x / length, z / length])
 }
-fn command(state: State, key: &str) -> Decision {
+fn command(state: State, key: &str, duration_ms: u64) -> Decision {
     Decision {
         status: "running".into(),
         reason: "Local motion with measured feedback".into(),
         memory: serde_json::to_value(state).unwrap(),
         action: Some(Action {
             keys: vec![key.into()],
-            duration_ms: 150,
+            duration_ms,
             ui_mode: Some("world".into()),
             ..Default::default()
         }),
@@ -148,7 +148,7 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
     }
     if state.last_key.is_empty() {
         state.last_key = "backward".into();
-        return command(state, "backward");
+        return command(state, "backward", 150);
     }
     let delta = unit(position.x - state.previous.x, position.z - state.previous.z);
     state.previous = position.clone();
@@ -164,7 +164,7 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
         } else {
             state.phase = "right_probe".into();
             state.last_key = "right".into();
-            return command(state, "right");
+            return command(state, "right", 150);
         }
     } else if state.phase == "right_probe" {
         let Some(delta) = delta else {
@@ -231,7 +231,12 @@ pub fn step(world: &World, memory: &Value, goal: &Goal) -> Decision {
         return blocked("All calibrated directions blocked near this position");
     };
     state.last_key = key.into();
-    command(state, key)
+    let duration = if error[0].hypot(error[1]) > 1.0 {
+        300
+    } else {
+        150
+    };
+    command(state, key, duration)
 }
 
 /// Start a new bounded segment using the axes learned by a completed segment.

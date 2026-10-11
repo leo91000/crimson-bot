@@ -141,6 +141,9 @@ fn classify(lines: &[Line]) -> String {
     if text.contains("charger") && text.contains("sauvegarder") {
         return "pause".into();
     }
+    if text.contains("audio") && text.contains("graphismes") && text.contains("accessibilite") {
+        return "settings".into();
+    }
     if text.contains("charger")
         && (text.contains("continuer") || text.contains("reprendre") || text.contains("jouer"))
         && text.contains("nouvelle")
@@ -153,14 +156,51 @@ fn classify(lines: &[Line]) -> String {
     {
         return "journal".into();
     }
-    let clock = lines.iter().any(|line| {
-        let value = line.text.to_lowercase();
-        line.left < 500.0 && value.contains(':') && (value.contains("pm") || value.contains("am"))
-    });
+    let clock = lines
+        .iter()
+        .any(|line| line.left < 500.0 && hud_clock(&line.text));
     if clock {
         return "world".into();
     }
     "unknown".into()
+}
+fn hud_clock(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    let digit = |value: u8| match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'i' | b'l' => Some(1),
+        b'o' => Some(0),
+        _ => None,
+    };
+    for suffix in ["am", "pm"] {
+        for (index, _) in text.match_indices(suffix) {
+            let bytes = text[..index].trim_end().as_bytes();
+            if bytes.len() < 4 {
+                continue;
+            }
+            let minute_start = bytes.len() - 2;
+            let separator = minute_start - 1;
+            if !b":.".contains(&bytes[separator])
+                || !bytes[minute_start..].iter().all(|b| digit(*b).is_some())
+            {
+                continue;
+            }
+            let mut hour_start = separator;
+            while hour_start > 0 && digit(bytes[hour_start - 1]).is_some() {
+                hour_start -= 1;
+            }
+            if !(1..=2).contains(&(separator - hour_start)) {
+                continue;
+            }
+            let number = |part: &[u8]| part.iter().fold(0u8, |n, b| n * 10 + digit(*b).unwrap());
+            let hour = number(&bytes[hour_start..separator]);
+            let minute = number(&bytes[minute_start..]);
+            if (1..=12).contains(&hour) && minute < 60 {
+                return true;
+            }
+        }
+    }
+    false
 }
 pub fn normalize(text: &str) -> String {
     text.to_lowercase()
@@ -191,5 +231,14 @@ mod tests {
             glyphs: vec![],
         }];
         assert_eq!(classify(&lines), "pause");
+    }
+    #[test]
+    fn clock_accepts_observed_ocr_dot_but_rejects_invalid_times() {
+        assert!(hud_clock("Jour 85.Lun 3.48 PM"));
+        assert!(hud_clock("12:03 am"));
+        assert!(hud_clock("Jour 85 Lun 6:l1 PM"));
+        for value in ["13.48 PM", "3.60 PM", "0:15 AM", "123.45 PM", "PM"] {
+            assert!(!hud_clock(value));
+        }
     }
 }

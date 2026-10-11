@@ -49,30 +49,14 @@ impl Script {
         engine.register_fn("inventory_count", inventory_count);
         engine.register_fn(
             "navigation_step",
-            |world: Dynamic,
-             memory: Dynamic,
-             goal: Dynamic|
-             -> Result<Dynamic, Box<rhai::EvalAltResult>> {
-                let world = rhai::serde::from_dynamic::<World>(&world)?;
-                let memory = rhai::serde::from_dynamic::<Value>(&memory)?;
-                let goal = rhai::serde::from_dynamic::<Value>(&goal)?;
-                let goal = serde_json::from_value::<crate::navigation::Goal>(goal)
-                    .map_err(|e| -> Box<rhai::EvalAltResult> { e.to_string().into() })?;
-                rhai::serde::to_dynamic(crate::navigation::step(&world, &memory, &goal))
+            |world: Dynamic, memory: Dynamic, goal: Dynamic| {
+                navigation_call(world, memory, goal, crate::navigation::step)
             },
         );
         engine.register_fn(
             "navigation_retarget",
-            |world: Dynamic,
-             memory: Dynamic,
-             goal: Dynamic|
-             -> Result<Dynamic, Box<rhai::EvalAltResult>> {
-                let world = rhai::serde::from_dynamic::<World>(&world)?;
-                let memory = rhai::serde::from_dynamic::<Value>(&memory)?;
-                let goal = rhai::serde::from_dynamic::<Value>(&goal)?;
-                let goal = serde_json::from_value::<crate::navigation::Goal>(goal)
-                    .map_err(|e| -> Box<rhai::EvalAltResult> { e.to_string().into() })?;
-                rhai::serde::to_dynamic(crate::navigation::retarget(&world, &memory, &goal))
+            |world: Dynamic, memory: Dynamic, goal: Dynamic| {
+                navigation_call(world, memory, goal, crate::navigation::retarget)
             },
         );
         let ast = engine.compile(source).context("Invalid Rhai task")?;
@@ -144,6 +128,19 @@ impl Script {
 }
 fn find_ui(ui: Dynamic, wanted: &str) -> Result<Dynamic, Box<rhai::EvalAltResult>> {
     find_ui_in(ui, wanted, 0.0, 0.0, 1.0, 1.0)
+}
+fn navigation_call(
+    world: Dynamic,
+    memory: Dynamic,
+    goal: Dynamic,
+    step: fn(&World, &Value, &crate::navigation::Goal) -> Decision,
+) -> Result<Dynamic, Box<rhai::EvalAltResult>> {
+    let world = rhai::serde::from_dynamic::<World>(&world)?;
+    let memory = rhai::serde::from_dynamic::<Value>(&memory)?;
+    let goal = rhai::serde::from_dynamic::<Value>(&goal)?;
+    let goal = serde_json::from_value::<crate::navigation::Goal>(goal)
+        .map_err(|e| -> Box<rhai::EvalAltResult> { e.to_string().into() })?;
+    rhai::serde::to_dynamic(step(&world, &memory, &goal))
 }
 fn inventory_count(
     items: Dynamic,
@@ -420,6 +417,20 @@ mod tests {
         assert_eq!(script.tick(&w, 6000).unwrap().status, "succeeded");
     }
     #[test]
+    fn all_bundled_tasks_compile_with_the_sandboxed_engine() {
+        for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/tasks")).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|v| v.to_str()) != Some("rhai") {
+                continue;
+            }
+            assert!(
+                Script::load(&path).is_ok(),
+                "Failed to compile {}",
+                path.display()
+            );
+        }
+    }
+    #[test]
     fn resource_route_checks_navigation_health_prompt_and_inventory() {
         let mut w = world();
         w.position = Some(crate::model::Position {
@@ -472,6 +483,11 @@ mod tests {
         };
         let mut script = start();
         assert!(script.tick(&w, 0).unwrap().action.is_none());
+        w.ui.as_mut().unwrap().mode = "unknown".into();
+        let missed = script.tick(&w, 1).unwrap();
+        assert_eq!(missed.status, "running");
+        assert!(missed.action.is_none());
+        w.ui.as_mut().unwrap().mode = "world".into();
         assert_eq!(
             script.tick(&w, 1).unwrap().action.unwrap().keys,
             ["backward"]
@@ -480,8 +496,16 @@ mod tests {
         assert_eq!(script.tick(&w, 2).unwrap().status, "running");
         w.position.as_mut().unwrap().z = -1.2;
         let near = script.tick(&w, 3).unwrap();
-        assert_eq!(near.status, "blocked");
-        assert!(near.action.is_none());
+        assert_eq!(near.status, "running");
+        assert_eq!(near.action.unwrap().mouse_x, 300);
+        for tick in 4..15 {
+            assert_eq!(script.tick(&w, tick).unwrap().status, "running");
+        }
+        let exhausted = script.tick(&w, 15).unwrap();
+        assert_eq!(exhausted.status, "running");
+        assert!(exhausted.action.is_none());
+        assert_eq!(exhausted.memory["skipped"], 1);
+        assert_eq!(script.tick(&w, 16).unwrap().status, "blocked");
         let mut script = start();
         script.tick(&w, 0).unwrap();
         w.stats[0].current = 99.0;
@@ -515,5 +539,29 @@ mod tests {
         assert_eq!(script.tick(&w, 100).unwrap().status, "running");
         w.inventory.as_mut().unwrap()[0].quantity = 5;
         assert_eq!(script.tick(&w, 6000).unwrap().status, "succeeded");
+        // A completed scene can remain in memory; skip it and preserve the whole-task baseline.
+        w.inventory.as_mut().unwrap()[0].quantity = 4;
+        let mut next = w.resource_candidates.as_ref().unwrap()[0].clone();
+        next.id = "second-plant".into();
+        next.position.z = -3.0;
+        w.resource_candidates.as_mut().unwrap().push(next);
+        let mut batch = start();
+        batch.configure(json!({"prefab_suffix":"gimmick_collect_bush_peony_01.prefab","item_name":"Pivoine","item_key":757006,"storage":1,"amount":2})).unwrap();
+        batch.tick(&w, 0).unwrap();
+        batch.tick(&w, 1).unwrap();
+        w.inventory.as_mut().unwrap()[0].quantity = 5;
+        assert_eq!(batch.tick(&w, 6000).unwrap().status, "running");
+        let selected = batch.tick(&w, 6001).unwrap();
+        assert_eq!(selected.memory["target"]["id"], "second-plant");
+        assert_eq!(selected.memory["baseline"], 4);
+        assert_eq!(
+            batch.tick(&w, 6002).unwrap().action.unwrap().keys,
+            ["interact"]
+        );
+        w.inventory.as_mut().unwrap()[0].quantity = 6;
+        let done = batch.tick(&w, 12000).unwrap();
+        assert_eq!(done.status, "succeeded");
+        assert_eq!(done.memory["collected"], 2);
+        assert_eq!(done.memory["targets"], 2);
     }
 }

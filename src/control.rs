@@ -6,6 +6,23 @@ use evdev::{
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, process::Command};
 
+#[derive(Clone, Copy, Debug, Default, Serialize, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum MovementLayout {
+    #[default]
+    Wasd,
+    Zqsd,
+}
+impl MovementLayout {
+    pub fn key(self, name: &str) -> Result<Key> {
+        match (self, name) {
+            (Self::Zqsd, "forward") => Ok(Key::KEY_Z),
+            (Self::Zqsd, "left") => Ok(Key::KEY_Q),
+            _ => key(name),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Action {
@@ -63,10 +80,19 @@ impl Action {
         for binding in &self.keys {
             key(binding)?;
         }
+        if let Some(mode) = self.ui_mode.as_deref() {
+            ensure!(
+                ["world", "journal", "pause", "settings", "title"].contains(&mode),
+                "Unsupported action interface state"
+            );
+        }
         if let Some([x, y]) = self.cursor {
             ensure!(x < 7680 && y < 4320, "Cursor outside supported dimensions");
             ensure!(
-                matches!(self.ui_mode.as_deref(), Some("journal" | "title")),
+                matches!(
+                    self.ui_mode.as_deref(),
+                    Some("journal" | "pause" | "settings" | "title")
+                ),
                 "Cursor actions require a recognized supported menu"
             );
             ensure!(
@@ -95,15 +121,19 @@ pub struct Controls {
     device: VirtualDevice,
     held: BTreeSet<u16>,
     held_x_mouse: bool,
+    layout: MovementLayout,
 }
 impl Controls {
     pub fn create() -> Result<Self> {
+        Self::create_with_layout(MovementLayout::Wasd)
+    }
+    pub fn create_with_layout(layout: MovementLayout) -> Result<Self> {
         let mut keys = AttributeSet::<Key>::new();
         for binding in [
             "forward", "backward", "left", "right", "interact", "jump", "sprint", "escape",
             "journal", "map", "attack", "guard", "lock_on", "confirm", "up", "down",
         ] {
-            keys.insert(key(binding)?);
+            keys.insert(layout.key(binding)?);
         }
         let mut axes = AttributeSet::<RelativeAxisType>::new();
         axes.insert(RelativeAxisType::REL_X);
@@ -117,6 +147,7 @@ impl Controls {
             device,
             held: BTreeSet::new(),
             held_x_mouse: false,
+            layout,
         })
     }
     pub fn apply(&mut self, action: &Action) -> Result<()> {
@@ -142,7 +173,7 @@ impl Controls {
             if action.cursor.is_some() && binding == "click" {
                 continue;
             }
-            let code = key(binding)?.code();
+            let code = self.layout.key(binding)?.code();
             if self.held.insert(code) {
                 events.push(InputEvent::new(EventType::KEY, code, 1));
             }
@@ -194,6 +225,18 @@ impl Drop for Controls {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn movement_profiles_map_logical_actions_without_changing_other_bindings() {
+        assert_eq!(MovementLayout::Wasd.key("forward").unwrap(), Key::KEY_W);
+        assert_eq!(MovementLayout::Zqsd.key("forward").unwrap(), Key::KEY_Z);
+        assert_eq!(MovementLayout::Zqsd.key("left").unwrap(), Key::KEY_Q);
+        for name in ["backward", "right", "interact", "escape", "attack"] {
+            assert_eq!(
+                MovementLayout::Wasd.key(name).unwrap(),
+                MovementLayout::Zqsd.key(name).unwrap()
+            );
+        }
+    }
     #[test]
     fn action_validation_rejects_unbounded_or_unknown_commands() {
         assert!(
